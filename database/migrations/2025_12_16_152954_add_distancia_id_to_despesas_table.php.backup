@@ -1,0 +1,67 @@
+<?php
+// database/migrations/[timestamp]_rename_rota_id_to_distancia_id_in_despesas_table.php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
+
+return new class extends Migration
+{
+    public function up()
+    {
+        // 1. Primeiro renomear a coluna
+        if (Schema::hasColumn('despesas', 'rota_id') && !Schema::hasColumn('despesas', 'distancia_id')) {
+            Schema::table('despesas', function (Blueprint $table) {
+                // Renomear rota_id para distancia_id
+                $table->renameColumn('rota_id', 'distancia_id');
+            });
+        }
+        
+        // 2. Se não tiver índice, criar
+        Schema::table('despesas', function (Blueprint $table) {
+            if (!Schema::hasIndex('despesas', 'despesas_distancia_id_index')) {
+                $table->index('distancia_id', 'despesas_distancia_id_index');
+            }
+        });
+        
+        // 3. Atualizar foreign key (se existir)
+        Schema::table('despesas', function (Blueprint $table) {
+            // Remover foreign key antiga (se existir)
+            $sm = Schema::getConnection()->getDoctrineSchemaManager();
+            $indexesFound = $sm->listTableForeignKeys('despesas');
+            
+            foreach ($indexesFound as $index) {
+                if (in_array('rota_id', $index->getColumns())) {
+                    $table->dropForeign(['rota_id']);
+                }
+            }
+            
+            // Adicionar nova foreign key
+            $table->foreign('distancia_id')
+                ->references('id')
+                ->on('distancias')
+                ->onDelete('cascade');
+        });
+    }
+
+    public function down()
+    {
+        Schema::table('despesas', function (Blueprint $table) {
+            // Remover foreign key nova
+            $table->dropForeign(['distancia_id']);
+            
+            // Renomear de volta para rota_id
+            $table->renameColumn('distancia_id', 'rota_id');
+            
+            // Re-criar índice antigo
+            $table->index('rota_id', 'despesas_rota_id_index');
+            
+            // Re-criar foreign key antiga
+            $table->foreign('rota_id')
+                ->references('id')
+                ->on('distancias')
+                ->onDelete('cascade');
+        });
+    }
+};
