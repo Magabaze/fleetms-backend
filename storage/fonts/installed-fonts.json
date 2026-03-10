@@ -1,0 +1,11 @@
+{
+    "dm sans": {
+        "300": "C:\\Users\\magabaze.ernesto\\Downloads\\xampp\\htdocs\\fleetms\\storage\\fonts\/\/dm_sans_300_f8543d32d9115391444a15802cc85f00",
+        "normal": "C:\\Users\\magabaze.ernesto\\Downloads\\xampp\\htdocs\\fleetms\\storage\\fonts\/\/dm_sans_normal_42fcd0ea12ff589f4ccf7cd1eb4b0bb8",
+        "500": "C:\\Users\\magabaze.ernesto\\Downloads\\xampp\\htdocs\\fleetms\\storage\\fonts\/\/dm_sans_500_e3bc8d7bbed7eb5328692f20824bd3d5",
+        "600": "dm_sans_600_95b1ff7d73eecd4f24f1e5335a68fdd5"
+    },
+    "dm serif display": {
+        "normal": "dm_serif_display_normal_b77672a7d6b790d89cc032df9540ee50"
+    }
+}

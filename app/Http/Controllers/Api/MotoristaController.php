@@ -1,16 +1,17 @@
 <?php
-// app/Http/Controllers/Api/MotoristaController.php
 
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Motorista;
+use App\Models\Carteira;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Carbon\Carbon;
 
 class MotoristaController extends Controller
 {
@@ -25,54 +26,117 @@ class MotoristaController extends Controller
         return $user->tenant_id ?? 'default';
     }
 
-    // Validar se é imagem
-    private function isImage($file)
+    /**
+     * FUNÇÃO SIMPLES: Cria carteira automaticamente
+     */
+    private function criarCarteiraAutomatica($motorista)
     {
-        $mime = $file->getMimeType();
-        return str_starts_with($mime, 'image/');
+        try {
+            // Verificar se já existe
+            $existe = Carteira::where('motorista', $motorista->nome_completo)
+                ->where('tenant_id', $motorista->tenant_id)
+                ->first();
+
+            if (!$existe) {
+                Carteira::create([
+                    'motorista' => $motorista->nome_completo,
+                    'saldo' => 0,
+                    'total_bonus' => 0,
+                    'total_divida' => 0,
+                    'ultimo_movimento' => now(),
+                    'tenant_id' => $motorista->tenant_id
+                ]);
+
+                Log::info('✅ Carteira criada automaticamente', [
+                    'motorista' => $motorista->nome_completo
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('❌ Erro ao criar carteira: ' . $e->getMessage());
+        }
     }
 
-    // Converter para camelCase
+    /**
+     * Faz upload de arquivo para o Cloudflare R2
+     */
+    private function fazerUploadR2($file, $pasta, $prefixo, $tenantId)
+    {
+        if (!$file || !$file->isValid()) {
+            return null;
+        }
+
+        try {
+            $extensao = $file->getClientOriginalExtension();
+            $nomeArquivo = $prefixo . '_' . time() . '_' . Str::random(10) . '.' . $extensao;
+            $caminhoR2 = "{$pasta}/{$tenantId}/{$nomeArquivo}";
+
+            Storage::disk('r2')->put(
+                $caminhoR2,
+                file_get_contents($file),
+                ['ContentType' => $file->getMimeType()]
+            );
+
+            return $caminhoR2;
+
+        } catch (\Exception $e) {
+            Log::error('❌ Erro no upload R2: ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Deleta arquivo do R2
+     */
+    private function deletarArquivoR2($caminho)
+    {
+        if ($caminho && Storage::disk('r2')->exists($caminho)) {
+            try {
+                Storage::disk('r2')->delete($caminho);
+                return true;
+            } catch (\Exception $e) {
+                Log::error('❌ Erro ao deletar do R2: ' . $e->getMessage());
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Converte o modelo do banco para o formato camelCase do Frontend
+     */
     private function paraCamelCase($motorista)
     {
         return [
-            'id' => $motorista->id,
-            'nomeCompleto' => $motorista->nome_completo,
-            'numeroCarta' => $motorista->numero_carta,
-            'numeroPassaporte' => $motorista->numero_passaporte,
-            'nacionalidade' => $motorista->nacionalidade,
-            'telefone' => $motorista->telefone,
+            'id'                  => $motorista->id,
+            'nomeCompleto'        => $motorista->nome_completo,
+            'numeroCarta'         => $motorista->numero_carta,
+            'numeroPassaporte'    => $motorista->numero_passaporte,
+            'nacionalidade'       => $motorista->nacionalidade,
+            'telefone'            => $motorista->telefone,
             'telefoneAlternativo' => $motorista->telefone_alternativo,
-            'email' => $motorista->email,
-            'endereco' => $motorista->endereco,
-            'tipoLicenca' => $motorista->tipo_licenca,
-            'validadeLicenca' => $motorista->validade_licenca,
-            'validadePassaporte' => $motorista->validade_passaporte,
-            'status' => $motorista->status,
-            'observacoes' => $motorista->observacoes,
-            'fotoUrl' => $motorista->foto_url ? Storage::url($motorista->foto_url) : null,
-            'fotoCartaUrl' => $motorista->foto_carta_url ? Storage::url($motorista->foto_carta_url) : null,
-            'fotoPassaporteUrl' => $motorista->foto_passaporte_url ? Storage::url($motorista->foto_passaporte_url) : null,
-            'documentos' => $motorista->documentos,
-            'criadoPor' => $motorista->criado_por,
-            'createdAt' => $motorista->created_at->toISOString(),
-            'updatedAt' => $motorista->updated_at->toISOString()
+            'email'               => $motorista->email,
+            'endereco'            => $motorista->endereco,
+            'tipoLicenca'         => $motorista->tipo_licenca,
+            'validadeLicenca'     => $motorista->validade_licenca ? Carbon::parse($motorista->validade_licenca)->format('Y-m-d') : null,
+            'validadePassaporte'  => $motorista->validade_passaporte ? Carbon::parse($motorista->validade_passaporte)->format('Y-m-d') : null,
+            'status'              => $motorista->status,
+            'observacoes'         => $motorista->observacoes,
+            'criadoPor'           => $motorista->criado_por,
+            'createdAt'           => $motorista->created_at?->toISOString(),
+            'updatedAt'           => $motorista->updated_at?->toISOString(),
+            'fotoUrl'             => $motorista->foto_url ? Storage::disk('r2')->url($motorista->foto_url) : null,
+            'fotoCartaUrl'        => $motorista->foto_carta_url ? Storage::disk('r2')->url($motorista->foto_carta_url) : null,
+            'fotoPassaporteUrl'   => $motorista->foto_passaporte_url ? Storage::disk('r2')->url($motorista->foto_passaporte_url) : null,
         ];
     }
 
     public function index(Request $request)
     {
         $tenantId = $this->getTenantId();
-        
-        Log::info('📥 GET /api/motoristas', [
-            'user_id' => Auth::id(),
-            'tenant_id' => $tenantId,
-            'query' => $request->all()
-        ]);
-        
+
         try {
             $query = Motorista::where('tenant_id', $tenantId);
-            
+
             if ($request->has('search') && $request->search) {
                 $search = $request->search;
                 $query->where(function ($q) use ($search) {
@@ -83,25 +147,25 @@ class MotoristaController extends Controller
                       ->orWhere('telefone', 'like', "%{$search}%");
                 });
             }
-            
+
             if ($request->has('status') && $request->status !== 'todos') {
                 $query->where('status', $request->status);
             }
-            
+
             $perPage = $request->get('limit', 10);
             $page = $request->get('page', 1);
-            
+
             $motoristas = $query->orderBy('created_at', 'desc')->paginate($perPage, ['*'], 'page', $page);
-            
+
+            // 👉 GARANTIR QUE TODOS OS MOTORISTAS TENHAM CARTEIRA
+            foreach ($motoristas as $motorista) {
+                $this->criarCarteiraAutomatica($motorista);
+            }
+
             $motoristasCamelCase = $motoristas->map(function ($motorista) {
                 return $this->paraCamelCase($motorista);
             });
-            
-            Log::info('✅ Motoristas listados', [
-                'total' => $motoristas->total(),
-                'tenant_id' => $tenantId
-            ]);
-            
+
             return response()->json([
                 'success' => true,
                 'data' => $motoristasCamelCase->toArray(),
@@ -110,11 +174,9 @@ class MotoristaController extends Controller
                     'limit' => $perPage,
                     'total' => $motoristas->total(),
                     'totalPages' => $motoristas->lastPage(),
-                    'hasNextPage' => $motoristas->hasMorePages(),
-                    'hasPrevPage' => $motoristas->currentPage() > 1,
                 ]
             ]);
-            
+
         } catch (\Exception $e) {
             Log::error('❌ Erro ao listar motoristas: ' . $e->getMessage());
             return response()->json([
@@ -128,134 +190,74 @@ class MotoristaController extends Controller
     {
         $user = Auth::user();
         $tenantId = $this->getTenantId();
-        
-        Log::info('📥 POST /api/motoristas', [
-            'user_id' => $user->id,
-            'tenant_id' => $tenantId,
-            'dados' => $request->except(['foto', 'fotoCarta', 'fotoPassaporte'])
-        ]);
-        
+
+        // 👉 VALIDAÇÃO SIMPLES - SÓ OBRIGATÓRIOS
         $validator = Validator::make($request->all(), [
             'nomeCompleto' => 'required|string|max:255',
-            'numeroCarta' => 'required|string|max:50|unique:motoristas,numero_carta,NULL,id,tenant_id,' . $tenantId,
-            'numeroPassaporte' => 'nullable|string|max:50',
+            'numeroCarta' => 'required|string|max:50',
             'nacionalidade' => 'required|string|max:50',
             'telefone' => 'required|string|max:20',
-            'telefoneAlternativo' => 'nullable|string|max:20',
             'tipoLicenca' => 'required|in:A,B,C,D,E',
             'validadeLicenca' => 'required|date',
-            'validadePassaporte' => 'nullable|date',
             'status' => 'required|in:Ativo,Inativo,Férias,Licença',
-            'email' => 'nullable|email|unique:motoristas,email,NULL,id,tenant_id,' . $tenantId,
-            'foto' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
-            'fotoCarta' => 'nullable|file|mimes:jpeg,png,jpg,gif,webp,pdf|max:5120',
-            'fotoPassaporte' => 'nullable|file|mimes:jpeg,png,jpg,gif,webp,pdf|max:5120',
-        ], [
-            'numeroCarta.unique' => 'Já existe um motorista com esta carta de condução',
-            'email.unique' => 'Já existe um motorista com este email',
-            'foto.image' => 'A foto deve ser uma imagem válida',
-            '*.mimes' => 'O arquivo deve ser: JPEG, PNG, JPG, GIF, WebP ou PDF',
-            '*.max' => 'O arquivo não deve exceder 5MB'
         ]);
-        
+
         if ($validator->fails()) {
-            Log::error('❌ Validação falhou', $validator->errors()->toArray());
             return response()->json([
                 'success' => false,
                 'error' => 'Erro de validação',
                 'errors' => $validator->errors()
             ], 422);
         }
-        
+
         try {
             $dados = [
-                'nome_completo' => $request->nomeCompleto,
-                'numero_carta' => $request->numeroCarta,
-                'numero_passaporte' => $request->numeroPassaporte,
-                'nacionalidade' => $request->nacionalidade,
-                'telefone' => $request->telefone,
-                'telefone_alternativo' => $request->telefoneAlternativo,
-                'tipo_licenca' => $request->tipoLicenca,
-                'validade_licenca' => $request->validadeLicenca,
+                'nome_completo'       => $request->nomeCompleto,
+                'numero_carta'        => $request->numeroCarta,
+                'numero_passaporte'   => $request->numeroPassaporte,
+                'nacionalidade'       => $request->nacionalidade,
+                'telefone'            => $request->telefone,
+                'telefone_alternativo'=> $request->telefoneAlternativo,
+                'email'               => $request->email,
+                'endereco'            => $request->endereco,
+                'tipo_licenca'        => $request->tipoLicenca,
+                'validade_licenca'    => $request->validadeLicenca,
                 'validade_passaporte' => $request->validadePassaporte,
-                'status' => $request->status,
-                'email' => $request->email ?? '',
-                'endereco' => $request->endereco ?? '',
-                'observacoes' => $request->observacoes ?? '',
-                'criado_por' => $user->name ?? 'Sistema',
-                'tenant_id' => $tenantId,
+                'status'              => $request->status,
+                'observacoes'         => $request->observacoes,
+                'criado_por'          => $user->name ?? 'Sistema',
+                'tenant_id'           => $tenantId,
             ];
-            
-            // Processar foto do motorista
-            if ($request->hasFile('foto') && $request->file('foto')->isValid()) {
-                $file = $request->file('foto');
-                $fileName = 'foto_' . time() . '_' . Str::random(10) . '.' . $file->getClientOriginalExtension();
-                $path = "motoristas/{$tenantId}/fotos";
-                
-                $file->storeAs($path, $fileName, 'public');
-                $dados['foto_url'] = "{$path}/{$fileName}";
-                
-                Log::info('📷 Foto salva', [
-                    'nome_arquivo' => $fileName,
-                    'caminho' => $path,
-                    'tenant_id' => $tenantId
-                ]);
+
+            // Upload das fotos
+            if ($request->hasFile('foto')) {
+                $dados['foto_url'] = $this->fazerUploadR2($request->file('foto'), 'motoristas/fotos', 'foto', $tenantId);
             }
-            
-            // Processar foto da carta
-            if ($request->hasFile('fotoCarta') && $request->file('fotoCarta')->isValid()) {
-                $file = $request->file('fotoCarta');
-                $fileName = 'carta_' . time() . '_' . Str::random(10) . '.' . $file->getClientOriginalExtension();
-                $path = "motoristas/{$tenantId}/documentos";
-                
-                $file->storeAs($path, $fileName, 'public');
-                $dados['foto_carta_url'] = "{$path}/{$fileName}";
-                
-                Log::info('📄 Carta salva', [
-                    'nome_arquivo' => $fileName,
-                    'caminho' => $path,
-                    'tipo' => $file->getMimeType(),
-                    'tenant_id' => $tenantId
-                ]);
+
+            if ($request->hasFile('fotoCarta')) {
+                $dados['foto_carta_url'] = $this->fazerUploadR2($request->file('fotoCarta'), 'motoristas/documentos/cartas', 'carta', $tenantId);
             }
-            
-            // Processar foto do passaporte
-            if ($request->hasFile('fotoPassaporte') && $request->file('fotoPassaporte')->isValid()) {
-                $file = $request->file('fotoPassaporte');
-                $fileName = 'passaporte_' . time() . '_' . Str::random(10) . '.' . $file->getClientOriginalExtension();
-                $path = "motoristas/{$tenantId}/documentos";
-                
-                $file->storeAs($path, $fileName, 'public');
-                $dados['foto_passaporte_url'] = "{$path}/{$fileName}";
-                
-                Log::info('📄 Passaporte salvo', [
-                    'nome_arquivo' => $fileName,
-                    'caminho' => $path,
-                    'tipo' => $file->getMimeType(),
-                    'tenant_id' => $tenantId
-                ]);
+
+            if ($request->hasFile('fotoPassaporte')) {
+                $dados['foto_passaporte_url'] = $this->fazerUploadR2($request->file('fotoPassaporte'), 'motoristas/documentos/passaportes', 'passaporte', $tenantId);
             }
-            
-            Log::info('💾 Salvando motorista', $dados);
-            
+
             $motorista = Motorista::create($dados);
-            
-            Log::info('✅ Motorista criado', [
-                'id' => $motorista->id,
-                'tenant_id' => $tenantId
-            ]);
-            
+
+            // 👉 CRIAR CARTEIRA AUTOMATICAMENTE!
+            $this->criarCarteiraAutomatica($motorista);
+
             return response()->json([
                 'success' => true,
-                'data' => $this->paraCamelCase($motorista),
+                'data'    => $this->paraCamelCase($motorista),
                 'message' => 'Motorista criado com sucesso!'
             ], 201);
-            
+
         } catch (\Exception $e) {
             Log::error('❌ Erro ao criar motorista: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'error' => 'Erro interno: ' . $e->getMessage()
+                'error' => 'Erro ao criar motorista: ' . $e->getMessage()
             ], 500);
         }
     }
@@ -263,22 +265,25 @@ class MotoristaController extends Controller
     public function show($id)
     {
         $tenantId = $this->getTenantId();
-        
+
         try {
             $motorista = Motorista::where('tenant_id', $tenantId)->find($id);
-            
+
             if (!$motorista) {
                 return response()->json([
                     'success' => false,
                     'error' => 'Motorista não encontrado'
                 ], 404);
             }
-            
+
+            // 👉 GARANTIR CARTEIRA
+            $this->criarCarteiraAutomatica($motorista);
+
             return response()->json([
                 'success' => true,
                 'data' => $this->paraCamelCase($motorista)
             ]);
-            
+
         } catch (\Exception $e) {
             Log::error('❌ Erro ao buscar motorista: ' . $e->getMessage());
             return response()->json([
@@ -291,44 +296,28 @@ class MotoristaController extends Controller
     public function update(Request $request, $id)
     {
         $tenantId = $this->getTenantId();
-        
-        Log::info('📥 PUT /api/motoristas/' . $id, [
-            'user_id' => Auth::id(),
-            'tenant_id' => $tenantId,
-            'dados' => $request->except(['foto', 'fotoCarta', 'fotoPassaporte'])
-        ]);
-        
+
         try {
             $motorista = Motorista::where('tenant_id', $tenantId)->find($id);
-            
+
             if (!$motorista) {
                 return response()->json([
                     'success' => false,
                     'error' => 'Motorista não encontrado'
                 ], 404);
             }
-            
+
+            // 👉 VALIDAÇÃO SIMPLES
             $validator = Validator::make($request->all(), [
                 'nomeCompleto' => 'required|string|max:255',
-                'numeroCarta' => 'required|string|max:50|unique:motoristas,numero_carta,' . $id . ',id,tenant_id,' . $tenantId,
-                'numeroPassaporte' => 'nullable|string|max:50',
+                'numeroCarta' => 'required|string|max:50',
                 'nacionalidade' => 'required|string|max:50',
                 'telefone' => 'required|string|max:20',
-                'telefoneAlternativo' => 'nullable|string|max:20',
                 'tipoLicenca' => 'required|in:A,B,C,D,E',
                 'validadeLicenca' => 'required|date',
-                'validadePassaporte' => 'nullable|date',
                 'status' => 'required|in:Ativo,Inativo,Férias,Licença',
-                'email' => 'nullable|email|unique:motoristas,email,' . $id . ',id,tenant_id,' . $tenantId,
-                'foto' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
-                'fotoCarta' => 'nullable|file|mimes:jpeg,png,jpg,gif,webp,pdf|max:5120',
-                'fotoPassaporte' => 'nullable|file|mimes:jpeg,png,jpg,gif,webp,pdf|max:5120',
-                'removerFoto' => 'nullable|boolean',
-            ], [
-                'numeroCarta.unique' => 'Já existe um motorista com esta carta de condução',
-                'email.unique' => 'Já existe um motorista com este email'
             ]);
-            
+
             if ($validator->fails()) {
                 return response()->json([
                     'success' => false,
@@ -336,96 +325,51 @@ class MotoristaController extends Controller
                     'errors' => $validator->errors()
                 ], 422);
             }
-            
+
             $dadosAtualizacao = [
-                'nome_completo' => $request->nomeCompleto,
-                'numero_carta' => $request->numeroCarta,
-                'numero_passaporte' => $request->numeroPassaporte,
-                'nacionalidade' => $request->nacionalidade,
-                'telefone' => $request->telefone,
-                'telefone_alternativo' => $request->telefoneAlternativo,
-                'tipo_licenca' => $request->tipoLicenca,
-                'validade_licenca' => $request->validadeLicenca,
+                'nome_completo'       => $request->nomeCompleto,
+                'numero_carta'        => $request->numeroCarta,
+                'numero_passaporte'   => $request->numeroPassaporte,
+                'nacionalidade'       => $request->nacionalidade,
+                'telefone'            => $request->telefone,
+                'telefone_alternativo'=> $request->telefoneAlternativo,
+                'email'               => $request->email,
+                'endereco'            => $request->endereco,
+                'tipo_licenca'        => $request->tipoLicenca,
+                'validade_licenca'    => $request->validadeLicenca,
                 'validade_passaporte' => $request->validadePassaporte,
-                'status' => $request->status,
-                'email' => $request->email ?? $motorista->email,
-                'endereco' => $request->endereco ?? $motorista->endereco,
-                'observacoes' => $request->observacoes ?? $motorista->observacoes,
+                'status'              => $request->status,
+                'observacoes'         => $request->observacoes,
             ];
-            
-            // Processar foto do motorista
-            if ($request->hasFile('foto') && $request->file('foto')->isValid()) {
-                // Remover foto antiga se existir
-                if ($motorista->foto_url && Storage::disk('public')->exists($motorista->foto_url)) {
-                    Storage::disk('public')->delete($motorista->foto_url);
-                }
-                
-                $file = $request->file('foto');
-                $fileName = 'foto_' . time() . '_' . Str::random(10) . '.' . $file->getClientOriginalExtension();
-                $path = "motoristas/{$tenantId}/fotos";
-                
-                $file->storeAs($path, $fileName, 'public');
-                $dadosAtualizacao['foto_url'] = "{$path}/{$fileName}";
-                
-                Log::info('📷 Foto atualizada', [
-                    'nome_arquivo' => $fileName,
-                    'caminho' => $path,
-                    'tenant_id' => $tenantId
-                ]);
-            } elseif ($request->has('removerFoto') && $request->removerFoto) {
-                // Remover foto se solicitado
-                if ($motorista->foto_url && Storage::disk('public')->exists($motorista->foto_url)) {
-                    Storage::disk('public')->delete($motorista->foto_url);
-                }
-                $dadosAtualizacao['foto_url'] = null;
+
+            // Processar fotos
+            if ($request->hasFile('foto')) {
+                $this->deletarArquivoR2($motorista->foto_url);
+                $dadosAtualizacao['foto_url'] = $this->fazerUploadR2($request->file('foto'), 'motoristas/fotos', 'foto', $tenantId);
             }
-            
-            // Processar foto da carta
-            if ($request->hasFile('fotoCarta') && $request->file('fotoCarta')->isValid()) {
-                // Remover documento antigo se existir
-                if ($motorista->foto_carta_url && Storage::disk('public')->exists($motorista->foto_carta_url)) {
-                    Storage::disk('public')->delete($motorista->foto_carta_url);
-                }
-                
-                $file = $request->file('fotoCarta');
-                $fileName = 'carta_' . time() . '_' . Str::random(10) . '.' . $file->getClientOriginalExtension();
-                $path = "motoristas/{$tenantId}/documentos";
-                
-                $file->storeAs($path, $fileName, 'public');
-                $dadosAtualizacao['foto_carta_url'] = "{$path}/{$fileName}";
+
+            if ($request->hasFile('fotoCarta')) {
+                $this->deletarArquivoR2($motorista->foto_carta_url);
+                $dadosAtualizacao['foto_carta_url'] = $this->fazerUploadR2($request->file('fotoCarta'), 'motoristas/documentos/cartas', 'carta', $tenantId);
             }
-            
-            // Processar foto do passaporte
-            if ($request->hasFile('fotoPassaporte') && $request->file('fotoPassaporte')->isValid()) {
-                // Remover documento antigo se existir
-                if ($motorista->foto_passaporte_url && Storage::disk('public')->exists($motorista->foto_passaporte_url)) {
-                    Storage::disk('public')->delete($motorista->foto_passaporte_url);
-                }
-                
-                $file = $request->file('fotoPassaporte');
-                $fileName = 'passaporte_' . time() . '_' . Str::random(10) . '.' . $file->getClientOriginalExtension();
-                $path = "motoristas/{$tenantId}/documentos";
-                
-                $file->storeAs($path, $fileName, 'public');
-                $dadosAtualizacao['foto_passaporte_url'] = "{$path}/{$fileName}";
+
+            if ($request->hasFile('fotoPassaporte')) {
+                $this->deletarArquivoR2($motorista->foto_passaporte_url);
+                $dadosAtualizacao['foto_passaporte_url'] = $this->fazerUploadR2($request->file('fotoPassaporte'), 'motoristas/documentos/passaportes', 'passaporte', $tenantId);
             }
-            
+
             $motorista->update($dadosAtualizacao);
-            
-            Log::info('✅ Motorista atualizado', [
-                'id' => $id,
-                'tenant_id' => $tenantId
-            ]);
-            
-            // Recarregar o motorista
             $motorista->refresh();
-            
+
+            // 👉 GARANTIR CARTEIRA
+            $this->criarCarteiraAutomatica($motorista);
+
             return response()->json([
                 'success' => true,
-                'data' => $this->paraCamelCase($motorista),
+                'data'    => $this->paraCamelCase($motorista),
                 'message' => 'Motorista atualizado com sucesso!'
             ]);
-            
+
         } catch (\Exception $e) {
             Log::error('❌ Erro ao atualizar motorista: ' . $e->getMessage());
             return response()->json([
@@ -438,98 +382,31 @@ class MotoristaController extends Controller
     public function destroy($id)
     {
         $tenantId = $this->getTenantId();
-        
+
         try {
             $motorista = Motorista::where('tenant_id', $tenantId)->find($id);
-            
+
             if (!$motorista) {
                 return response()->json([
                     'success' => false,
                     'error' => 'Motorista não encontrado'
                 ], 404);
             }
-            
-            // Remover arquivos se existirem
-            $arquivos = [
-                $motorista->foto_url,
-                $motorista->foto_carta_url,
-                $motorista->foto_passaporte_url
-            ];
-            
-            foreach ($arquivos as $arquivo) {
-                if ($arquivo && Storage::disk('public')->exists($arquivo)) {
-                    Storage::disk('public')->delete($arquivo);
-                }
-            }
-            
+
+            // Deleta todos os arquivos relacionados
+            $this->deletarArquivoR2($motorista->foto_url);
+            $this->deletarArquivoR2($motorista->foto_carta_url);
+            $this->deletarArquivoR2($motorista->foto_passaporte_url);
+
             $motorista->delete();
-            
-            Log::info('✅ Motorista excluído', [
-                'id' => $id,
-                'user_id' => Auth::id(),
-                'tenant_id' => $tenantId
-            ]);
-            
+
             return response()->json([
                 'success' => true,
                 'message' => 'Motorista excluído com sucesso!'
             ]);
-            
+
         } catch (\Exception $e) {
             Log::error('❌ Erro ao excluir motorista: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'error' => 'Erro interno: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-    
-    // Método para visualizar documento
-    public function visualizarDocumento($id, $tipo)
-    {
-        $tenantId = $this->getTenantId();
-        
-        try {
-            $motorista = Motorista::where('tenant_id', $tenantId)->find($id);
-            
-            if (!$motorista) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Motorista não encontrado'
-                ], 404);
-            }
-            
-            $campo = match($tipo) {
-                'foto' => 'foto_url',
-                'carta' => 'foto_carta_url',
-                'passaporte' => 'foto_passaporte_url',
-                default => null
-            };
-            
-            if (!$campo || !$motorista->$campo) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Documento não encontrado'
-                ], 404);
-            }
-            
-            if (Storage::disk('public')->exists($motorista->$campo)) {
-                $mime = Storage::disk('public')->mimeType($motorista->$campo);
-                $file = Storage::disk('public')->get($motorista->$campo);
-                
-                return response($file, 200, [
-                    'Content-Type' => $mime,
-                    'Content-Disposition' => 'inline; filename="' . basename($motorista->$campo) . '"'
-                ]);
-            }
-            
-            return response()->json([
-                'success' => false,
-                'error' => 'Arquivo não encontrado no storage'
-            ], 404);
-            
-        } catch (\Exception $e) {
-            Log::error('❌ Erro ao visualizar documento: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'error' => 'Erro interno: ' . $e->getMessage()

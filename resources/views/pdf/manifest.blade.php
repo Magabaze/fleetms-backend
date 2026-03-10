@@ -2,10 +2,10 @@
 <html lang="pt">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MANIFESTO DE VIAGEM - {{ $viagem->trip_number }}</title>
+    <title>Manifest - {{ $trip_number }}</title>
+    
     <style>
-        /* Reset e configurações gerais */
+        /* RESET E CONFIGURAÇÕES BASE */
         * {
             margin: 0;
             padding: 0;
@@ -13,610 +13,500 @@
         }
         
         body {
-            font-family: 'DejaVu Sans', 'Helvetica', Arial, sans-serif;
-            font-size: 11px;
-            line-height: 1.4;
-            color: #333;
-            background: #fff;
-            margin: 0;
-            padding: 10mm;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 7pt;
+            line-height: 1.1;
+            color: #000;
         }
         
-        /* Cabeçalho */
+        .container {
+            width: 100%;
+            padding: 5mm;
+        }
+        
         .header {
-            text-align: center;
-            margin-bottom: 20px;
-            border-bottom: 3px solid #1a56db;
-            padding-bottom: 15px;
+            display: table;
+            width: 100%;
+            margin-bottom: 4mm;
+            padding-bottom: 2mm;
+            border-bottom: 1.5pt solid #000;
         }
         
-        .header h1 {
-            color: #1a56db;
-            font-size: 24px;
-            font-weight: bold;
-            margin-bottom: 5px;
-            text-transform: uppercase;
+        .header-cell {
+            display: table-cell;
+            vertical-align: middle;
         }
         
-        .header .trip-number {
-            font-size: 18px;
-            font-weight: bold;
-            color: #374151;
-            background: #f3f4f6;
-            display: inline-block;
-            padding: 5px 15px;
-            border-radius: 4px;
-            margin: 5px 0;
+        .logo {
+            width: 45mm;
         }
         
-        .company-info {
-            margin-bottom: 15px;
-            padding: 10px;
-            background: #f8fafc;
-            border: 1px solid #e5e7eb;
-            border-radius: 6px;
-        }
-        
-        .company-info strong {
+        .logo img {
+            max-width: 40mm;
+            max-height: 15mm;
             display: block;
-            font-size: 16px;
-            color: #1f2937;
-            margin-bottom: 5px;
         }
         
-        /* Seções */
+        .title {
+            text-align: center;
+        }
+        
+        .title h1 {
+            font-size: 11pt;
+            font-weight: bold;
+            margin: 0 0 1mm 0;
+            text-transform: uppercase;
+            letter-spacing: 0.5pt;
+        }
+        
+        .title h2 {
+            font-size: 7pt;
+            margin: 0;
+            color: #555;
+            font-weight: normal;
+        }
+        
+        .doc-info {
+            text-align: right;
+            width: 45mm;
+        }
+        
+        .doc-number {
+            font-size: 9pt;
+            font-weight: bold;
+            color: #1a56db;
+            margin-bottom: 1mm;
+        }
+        
+        .doc-date {
+            font-size: 7pt;
+            color: #666;
+        }
+        
+        .content {
+            display: table;
+            width: 100%;
+            margin-bottom: 3mm;
+        }
+        
+        .column {
+            display: table-cell;
+            vertical-align: top;
+            padding: 0 3mm;
+        }
+        
+        .left-column {
+            width: 60%;
+        }
+        
+        .right-column {
+            width: 40%;
+        }
+        
         .section {
-            margin-bottom: 15px;
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-            overflow: hidden;
+            border: 0.5pt solid #000;
+            margin-bottom: 3mm;
         }
         
         .section-title {
-            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+            background: #2d3748;
             color: white;
-            padding: 8px 15px;
+            padding: 1.5mm 3mm;
+            font-size: 8pt;
             font-weight: bold;
-            font-size: 12px;
+            text-align: center;
             text-transform: uppercase;
         }
         
         .section-content {
-            padding: 15px;
+            padding: 2mm;
         }
         
-        /* Layout de colunas */
-        .row {
-            display: flex;
-            flex-wrap: wrap;
-            margin-bottom: 8px;
-            gap: 15px;
+        .table-info {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 7pt;
         }
         
-        .col {
-            flex: 1;
-            min-width: 200px;
-        }
-        
-        .col-full {
-            flex: 0 0 100%;
-        }
-        
-        /* Labels e valores */
-        .field {
-            margin-bottom: 8px;
+        .table-info td {
+            border: 0.5pt solid #ddd;
+            padding: 1mm 2mm;
+            vertical-align: middle;
         }
         
         .label {
-            display: block;
+            background: #f5f5f5;
             font-weight: bold;
-            color: #4b5563;
-            font-size: 10px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 2px;
+            width: 35%;
+            font-size: 6.5pt;
         }
         
-        .value {
-            color: #111827;
-            font-size: 11px;
-            padding: 4px 8px;
-            background: #f9fafb;
-            border-radius: 4px;
-            border-left: 3px solid #3b82f6;
-            min-height: 24px;
-            display: flex;
-            align-items: center;
-        }
-        
-        /* Badge de status */
-        .status-badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 10px;
-            font-weight: bold;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        .status-pending { background: #fbbf24; color: #78350f; }
-        .status-running { background: #06b6d4; color: #164e63; }
-        .status-completed { background: #10b981; color: #064e3b; }
-        .status-closed { background: #6b7280; color: white; }
-        .status-delivered { background: #8b5cf6; color: white; }
-        
-        /* Tabelas */
-        .table {
+        .cargo-table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 10px;
+            font-size: 6.5pt;
+            margin-top: 2mm;
         }
         
-        .table th {
-            background: #f3f4f6;
-            color: #374151;
+        .cargo-table th {
+            background: #4a5568;
+            color: white;
+            padding: 1.5mm;
+            border: 0.5pt solid #000;
+            text-align: center;
             font-weight: bold;
-            padding: 8px;
-            text-align: left;
-            border: 1px solid #d1d5db;
-            font-size: 10px;
+            font-size: 7pt;
+        }
+        
+        .cargo-table td {
+            border: 0.5pt solid #000;
+            padding: 1.5mm;
+            text-align: center;
+        }
+        
+        .driver-info {
+            display: table;
+            width: 100%;
+        }
+        
+        .driver-photo {
+            display: table-cell;
+            width: 25mm;
+            vertical-align: top;
+            padding-right: 2mm;
+        }
+        
+        .photo-frame {
+            width: 23mm;
+            height: 28mm;
+            border: 0.5pt solid #000;
+            overflow: hidden;
+            background: #f5f5f5;
+        }
+        
+        .driver-photo-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .driver-name {
+            font-size: 6.5pt;
+            font-weight: bold;
+            text-align: center;
+            margin-top: 1mm;
+        }
+        
+        .driver-details {
+            display: table-cell;
+            vertical-align: top;
+        }
+        
+        .vehicle-grid {
+            display: table;
+            width: 100%;
+            margin-top: 2mm;
+        }
+        
+        .vehicle-row {
+            display: table-row;
+        }
+        
+        .vehicle-item {
+            display: table-cell;
+            border: 0.5pt solid #ddd;
+            padding: 2mm;
+            text-align: center;
+            width: 50%;
+        }
+        
+        .vehicle-label {
+            font-size: 6pt;
+            color: #666;
+            margin-bottom: 1mm;
             text-transform: uppercase;
         }
         
-        .table td {
-            padding: 8px;
-            border: 1px solid #e5e7eb;
-            font-size: 11px;
+        .vehicle-value {
+            font-size: 8pt;
+            font-weight: bold;
         }
         
-        .table tr:nth-child(even) {
+        .declaration {
+            padding: 2mm 3mm;
+            border: 0.5pt solid #000;
+            font-size: 6.5pt;
+            line-height: 1.3;
             background: #f9fafb;
+            margin-top: 3mm;
         }
         
-        /* Assinaturas */
         .signatures {
-            margin-top: 30px;
-            border-top: 2px solid #d1d5db;
-            padding-top: 20px;
-            display: flex;
-            justify-content: space-between;
+            display: table;
+            width: 100%;
+            margin-top: 3mm;
+            padding-top: 2mm;
+            border-top: 0.5pt solid #000;
         }
         
         .signature-box {
+            display: table-cell;
             text-align: center;
-            width: 45%;
+            width: 50%;
         }
         
         .signature-line {
-            width: 80%;
-            height: 1px;
-            background: #000;
-            margin: 40px auto 10px auto;
+            height: 8mm;
+            border-bottom: 0.5pt solid #000;
+            margin: 1mm 3mm 1mm 3mm;
         }
         
-        /* Informações do documento */
-        .document-info {
-            margin-top: 25px;
-            padding-top: 15px;
-            border-top: 1px solid #e5e7eb;
-            text-align: center;
-            color: #6b7280;
-            font-size: 9px;
-        }
-        
-        /* QR Code placeholder */
-        .qrcode-placeholder {
-            width: 100px;
-            height: 100px;
-            background: #f3f4f6;
-            border: 1px dashed #d1d5db;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto;
-            color: #9ca3af;
-            font-size: 8px;
-            text-align: center;
-        }
-        
-        /* Alertas e destaques */
-        .alert {
-            padding: 10px;
-            border-radius: 6px;
-            margin: 10px 0;
-            font-size: 10px;
-        }
-        
-        .alert-warning {
-            background: #fef3c7;
-            border-left: 4px solid #f59e0b;
-            color: #92400e;
-        }
-        
-        .alert-info {
-            background: #dbeafe;
-            border-left: 4px solid #3b82f6;
-            color: #1e40af;
-        }
-        
-        /* Break page */
-        .page-break {
-            page-break-before: always;
-        }
-        
-        /* Logotipo */
-        .logo {
-            text-align: center;
-            margin-bottom: 10px;
-        }
-        
-        .logo-text {
-            font-size: 18px;
+        .signature-label {
+            font-size: 6.5pt;
             font-weight: bold;
-            color: #1a56db;
-            letter-spacing: 2px;
+            margin-bottom: 1mm;
         }
         
-        /* Cores específicas */
-        .text-primary { color: #1a56db; }
-        .text-secondary { color: #6b7280; }
-        .bg-light { background: #f9fafb; }
+        .signature-name {
+            font-size: 6pt;
+            color: #555;
+        }
         
-        /* Utilitários */
-        .mt-2 { margin-top: 10px; }
-        .mb-2 { margin-bottom: 10px; }
-        .text-center { text-align: center; }
-        .text-right { text-align: right; }
+        .customs-box {
+            border: 0.5pt solid #000;
+            padding: 2mm;
+            text-align: center;
+            margin-top: 3mm;
+        }
+        
+        .customs-stamp {
+            height: 15mm;
+            border: 0.5pt dashed #999;
+            margin: 2mm 0;
+            position: relative;
+        }
+        
+        .stamp-label {
+            position: absolute;
+            bottom: 1mm;
+            left: 0;
+            right: 0;
+            font-size: 6pt;
+            color: #666;
+        }
+        
+        .footer {
+            width: 100%;
+            text-align: center;
+            font-size: 6pt;
+            color: #666;
+            padding-top: 2mm;
+            border-top: 0.5pt solid #ccc;
+        }
+        
+        .footer-company {
+            font-weight: bold;
+            margin-bottom: 1mm;
+        }
+        
         .bold { font-weight: bold; }
-        .uppercase { text-transform: uppercase; }
+        .text-center { text-align: center; }
+        .no-wrap { white-space: nowrap; }
     </style>
 </head>
 <body>
-    <!-- Cabeçalho -->
-    <div class="header">
-        <div class="logo">
-            <div class="logo-text">FLEETMS</div>
-            <div style="font-size: 10px; color: #6b7280;">Sistema de Gestão de Transportes</div>
-        </div>
+    <div class="container">
         
-        <h1>MANIFESTO DE VIAGEM</h1>
-        <div class="trip-number">{{ $viagem->trip_number }}</div>
-        
-        <div style="margin-top: 10px; color: #6b7280;">
-            Gerado em: {{ $data_geracao }}
-        </div>
-    </div>
-    
-    <!-- Informações da Empresa -->
-    <div class="company-info">
-        @if($empresa)
-            <strong>{{ $empresa->nome }}</strong>
-            @if($empresa->morada)<div>{{ $empresa->morada }}</div>@endif
-            @if($empresa->nif)<div>NIF: {{ $empresa->nif }}</div>@endif
-            @if($empresa->telefone)<div>Tel: {{ $empresa->telefone }}</div>@endif
-        @else
-            <strong>Transporte & Logística</strong>
-            <div>Documento Oficial - Viagem Nº {{ $viagem->trip_number }}</div>
-        @endif
-    </div>
-    
-    <!-- Status e Informações Principais -->
-    <div class="row">
-        <div class="col">
-            <div class="section">
-                <div class="section-title">Status da Viagem</div>
-                <div class="section-content">
-                    <div class="field">
-                        <span class="label">Status Principal</span>
-                        <div class="value">
-                            <span class="status-badge status-{{ strtolower($viagem->status) }}">
-                                {{ $viagem->status }}
-                            </span>
-                        </div>
-                    </div>
-                    <div class="field">
-                        <span class="label">Status Atual</span>
-                        <div class="value">{{ $viagem->current_status ?? 'Não informado' }}</div>
-                    </div>
-                    <div class="field">
-                        <span class="label">Última Posição</span>
-                        <div class="value">{{ $viagem->current_position ?? 'Não informado' }}</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="col">
-            <div class="section">
-                <div class="section-title">Datas</div>
-                <div class="section-content">
-                    <div class="field">
-                        <span class="label">Data Agendada</span>
-                        <div class="value">
-                            @if($viagem->schedule_date)
-                                {{ \Carbon\Carbon::parse($viagem->schedule_date)->format('d/m/Y') }}
-                            @else
-                                -
-                            @endif
-                        </div>
-                    </div>
-                    <div class="field">
-                        <span class="label">Data de Entrega</span>
-                        <div class="value">
-                            @if($viagem->actual_delivery)
-                                {{ \Carbon\Carbon::parse($viagem->actual_delivery)->format('d/m/Y') }}
-                            @else
-                                -
-                            @endif
-                        </div>
-                    </div>
-                    <div class="field">
-                        <span class="label">Data POD</span>
-                        <div class="value">
-                            @if($viagem->pod_delivery_date)
-                                {{ \Carbon\Carbon::parse($viagem->pod_delivery_date)->format('d/m/Y') }}
-                            @else
-                                -
-                            @endif
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Rota -->
-    <div class="section">
-        <div class="section-title">Rota da Viagem</div>
-        <div class="section-content">
-            <div class="row">
-                <div class="col">
-                    <div class="field">
-                        <span class="label">Origem</span>
-                        <div class="value bold text-primary">{{ $viagem->from_station }}</div>
-                    </div>
-                </div>
-                <div class="col">
-                    <div class="field">
-                        <span class="label">Destino</span>
-                        <div class="value bold text-primary">{{ $viagem->to_station }}</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Cliente e Mercadoria -->
-    <div class="section">
-        <div class="section-title">Cliente e Mercadoria</div>
-        <div class="section-content">
-            <div class="row">
-                <div class="col">
-                    <div class="field">
-                        <span class="label">Cliente</span>
-                        <div class="value">{{ $viagem->customer_name }}</div>
-                    </div>
-                </div>
-                <div class="col">
-                    <div class="field">
-                        <span class="label">Nº Ordem</span>
-                        <div class="value">{{ $viagem->order_number ?? '-' }}</div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="row mt-2">
-                <div class="col">
-                    <div class="field">
-                        <span class="label">Mercadoria</span>
-                        <div class="value">{{ $viagem->commodity }}</div>
-                    </div>
-                </div>
-                <div class="col">
-                    <div class="field">
-                        <span class="label">Tipo de Carga</span>
-                        <div class="value">{{ $viagem->cargo_type }}</div>
-                    </div>
-                </div>
-                <div class="col">
-                    <div class="field">
-                        <span class="label">Peso</span>
-                        <div class="value">
-                            @if($viagem->weight)
-                                {{ number_format($viagem->weight, 2, ',', '.') }} kg
-                            @else
-                                -
-                            @endif
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            @if($viagem->container_no || $viagem->bl_number)
-            <div class="row mt-2">
-                @if($viagem->container_no)
-                <div class="col">
-                    <div class="field">
-                        <span class="label">Nº Container</span>
-                        <div class="value">{{ $viagem->container_no }}</div>
-                    </div>
-                </div>
+        <!-- CABEÇALHO -->
+        <div class="header">
+            <div class="header-cell logo">
+                @if($logo_empresa)
+                    <img src="{{ $logo_empresa }}" alt="Logo">
                 @endif
+            </div>
+            
+            <div class="header-cell title">
+                <h1>CUSTOMS ROAD FREIGHT MANIFEST</h1>
+                <h2>Documento Oficial de Transporte Rodoviário Internacional</h2>
+            </div>
+            
+            <div class="header-cell doc-info">
+                <div class="doc-number">REF: {{ $trip_number }}</div>
+                <div class="doc-date">Date: {{ $current_date }}</div>
+            </div>
+        </div>
+        
+        <!-- CONTEÚDO PRINCIPAL -->
+        <div class="content">
+            
+            <!-- COLUNA ESQUERDA -->
+            <div class="column left-column">
                 
-                @if($viagem->bl_number)
-                <div class="col">
-                    <div class="field">
-                        <span class="label">Nº BL/AWB</span>
-                        <div class="value">{{ $viagem->bl_number }}</div>
+                <div class="section">
+                    <div class="section-title">Trip Information</div>
+                    <div class="section-content">
+                        <table class="table-info">
+                            <tr><td class="label">TRIP REF</td><td class="bold">{{ $trip_number }}</td></tr>
+                            <tr><td class="label">ORDER NO.</td><td>{{ $order_number }}</td></tr>
+                            <tr><td class="label">BL/AWB NO.</td><td>{{ $bl_number }}</td></tr>
+                            <tr><td class="label">DATE</td><td>{{ $schedule_date }}</td></tr>
+                            <tr><td class="label">FROM</td><td class="bold">{{ $from_station }}</td></tr>
+                            <tr><td class="label">TO</td><td class="bold">{{ $to_station }}</td></tr>
+                            <tr><td class="label">CUSTOMER</td><td>{{ $customer_name }}</td></tr>
+                        </table>
                     </div>
                 </div>
-                @endif
-            </div>
-            @endif
-            
-            @if($viagem->isEmptyTrip)
-            <div class="alert alert-warning mt-2">
-                ⚠️ VIAGEM VAZIA - Retorno sem carga
-            </div>
-            @endif
-        </div>
-    </div>
-    
-    <!-- Veículos e Motorista -->
-    <div class="section">
-        <div class="section-title">Recursos da Viagem</div>
-        <div class="section-content">
-            <div class="row">
-                <div class="col">
-                    <div class="field">
-                        <span class="label">Camião</span>
-                        <div class="value bold">{{ $viagem->truck_number }}</div>
-                    </div>
-                </div>
-                <div class="col">
-                    <div class="field">
-                        <span class="label">Trela</span>
-                        <div class="value">{{ $viagem->trailer_number ?? '-' }}</div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="row mt-2">
-                <div class="col">
-                    <div class="field">
-                        <span class="label">Motorista</span>
-                        <div class="value bold">{{ $viagem->driver }}</div>
-                    </div>
-                </div>
-                <div class="col">
-                    <div class="field">
-                        <span class="label">Transportadora</span>
-                        <div class="value">{{ $viagem->transporter ?? ($viagem->isCompanyOwned ? 'Própria' : 'Externa') }}</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Informações de Tracking -->
-    @if($viagem->tracking_comments || $viagem->border_arrival_date || $viagem->offloading_arrival_date)
-    <div class="section">
-        <div class="section-title">Tracking & Observações</div>
-        <div class="section-content">
-            @if($viagem->tracking_comments)
-            <div class="field">
-                <span class="label">Observações</span>
-                <div class="value bg-light" style="white-space: pre-wrap; min-height: 40px; padding: 10px;">
-                    {{ $viagem->tracking_comments }}
-                </div>
-            </div>
-            @endif
-            
-            <div class="row mt-2">
-                @if($viagem->border_arrival_date)
-                <div class="col">
-                    <div class="field">
-                        <span class="label">Chegada à Fronteira</span>
-                        <div class="value">
-                            {{ \Carbon\Carbon::parse($viagem->border_arrival_date)->format('d/m/Y') }}
-                            @if($viagem->border_demurrage_days)
-                                <br><small>Demurrage: {{ $viagem->border_demurrage_days }} dias</small>
-                            @endif
-                        </div>
-                    </div>
-                </div>
-                @endif
                 
-                @if($viagem->offloading_arrival_date)
-                <div class="col">
-                    <div class="field">
-                        <span class="label">Chegada à Descarga</span>
-                        <div class="value">
-                            {{ \Carbon\Carbon::parse($viagem->offloading_arrival_date)->format('d/m/Y') }}
-                            @if($viagem->offloading_demurrage_days)
-                                <br><small>Demurrage: {{ $viagem->offloading_demurrage_days }} dias</small>
-                            @endif
-                        </div>
+                <div class="section">
+                    <div class="section-title">Cargo Details</div>
+                    <div class="section-content">
+                        <table class="cargo-table">
+                            <thead>
+                                <tr>
+                                    <th>NO.</th>
+                                    <th>CONTAINER NO.</th>
+                                    <th>TYPE</th>
+                                    <th>SEAL NO.</th>
+                                    <th>WEIGHT (kg)</th>
+                                    <th>COMMODITY</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>1</td>
+                                    <td>{{ $container_no }}</td>
+                                    <td>{{ $container_type }}</td>
+                                    <td>{{ $seal_no }}</td>
+                                    <td>{{ $weight }}</td>
+                                    <td>{{ $commodity }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
-                @endif
-            </div>
-        </div>
-    </div>
-    @endif
-    
-    <!-- Informações Financeiras -->
-    @if($viagem->isReadyForInvoice || $viagem->invoice_number)
-    <div class="section">
-        <div class="section-title">Informações Financeiras</div>
-        <div class="section-content">
-            <div class="row">
-                @if($viagem->invoice_number)
-                <div class="col">
-                    <div class="field">
-                        <span class="label">Nº Fatura</span>
-                        <div class="value">{{ $viagem->invoice_number }}</div>
-                    </div>
-                </div>
-                @endif
                 
-                <div class="col">
-                    <div class="field">
-                        <span class="label">Pronto para Faturar</span>
-                        <div class="value">
-                            @if($viagem->isReadyForInvoice)
-                                <span style="color: #10b981;">● SIM</span>
-                            @else
-                                <span style="color: #ef4444;">● NÃO</span>
-                            @endif
+                <div class="declaration">
+                    <strong>DECLARATION:</strong> I hereby certify that the particulars shown on this manifest are true reflection of all authorised goods carried on the above mentioned vehicle. {{ $empresa_nome }} shall bear no responsibility for any cargo not declared on the road freight manifest.
+                </div>
+                
+                <div class="signatures">
+                    <div class="signature-box">
+                        <div class="signature-label">DRIVER SIGNATURE</div>
+                        <div class="signature-line"></div>
+                        <div class="signature-name">{{ $driver }}</div>
+                    </div>
+                    
+                    <div class="signature-box">
+                        <div class="signature-label">TRANSPORTER STAMP</div>
+                        <div class="signature-line"></div>
+                        <div class="signature-name">{{ $empresa_nome }}</div>
+                    </div>
+                </div>
+                
+            </div>
+            
+            <!-- COLUNA DIREITA -->
+            <div class="column right-column">
+                
+                <div class="section">
+                    <div class="section-title">Driver Information</div>
+                    <div class="section-content">
+                        <div class="driver-info">
+                            <div class="driver-photo">
+                                <div class="photo-frame">
+                                    @if($foto_motorista)
+                                        <img src="{{ $foto_motorista }}" alt="Driver" class="driver-photo-img">
+                                    @else
+                                        <div style="width:100%;height:100%;background:#f5f5f5;display:flex;align-items:center;justify-content:center;">
+                                            <span style="color:#666;font-size:6pt;">No Photo</span>
+                                        </div>
+                                    @endif
+                                </div>
+                                <div class="driver-name">{{ $driver }}</div>
+                            </div>
+                            
+                            <div class="driver-details">
+                                <table class="table-info">
+                                    <tr><td class="label">NAME</td><td class="bold">{{ $driver }}</td></tr>
+                                    <tr><td class="label">LICENSE</td><td>{{ $driver_license }}</td></tr>
+                                    <tr><td class="label">PASSPORT</td><td>{{ $driver_passport }}</td></tr>
+                                    <tr><td class="label">PHONE</td><td>{{ $driver_phone }}</td></tr>
+                                    <tr><td class="label">NATIONALITY</td><td>{{ $driver_nationality }}</td></tr>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>
+                
+                <div class="section">
+                    <div class="section-title">Vehicle Information</div>
+                    <div class="section-content">
+                        <div class="vehicle-grid">
+                            <div class="vehicle-row">
+                                <div class="vehicle-item">
+                                    <div class="vehicle-label">Truck</div>
+                                    <div class="vehicle-value">{{ $truck_number }}</div>
+                                </div>
+                                <div class="vehicle-item">
+                                    <div class="vehicle-label">Trailer</div>
+                                    <div class="vehicle-value">{{ $trailer_number }}</div>
+                                </div>
+                            </div>
+                            <div class="vehicle-row">
+                                <div class="vehicle-item">
+                                    <div class="vehicle-label">Body Type</div>
+                                    <div class="vehicle-value">{{ $container_type }}</div>
+                                </div>
+                                <div class="vehicle-item">
+                                    <div class="vehicle-label">Axle</div>
+                                    <div class="vehicle-value">{{ $truck_axle }}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="section">
+                    <div class="section-title">Border Information</div>
+                    <div class="section-content">
+                        <div class="vehicle-grid">
+                            <div class="vehicle-row">
+                                <div class="vehicle-item">
+                                    <div class="vehicle-label">Entry Border</div>
+                                    <div class="vehicle-value">{{ $entry_border }}</div>
+                                </div>
+                                <div class="vehicle-item">
+                                    <div class="vehicle-label">Drop Off</div>
+                                    <div class="vehicle-value">{{ $to_station }}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="customs-box">
+                    <div class="signature-label">FOR CUSTOMS USE ONLY</div>
+                    <div class="customs-stamp">
+                        <div class="stamp-label">Customs Stamp & Signature</div>
+                    </div>
+                    <div style="font-size: 6.5pt;">Report No.: ________________</div>
+                </div>
+                
             </div>
-        </div>
-    </div>
-    @endif
-    
-    <!-- Assinaturas -->
-    <div class="signatures">
-        <div class="signature-box">
-            <div class="value" style="text-align: center; min-height: 60px;">
-                Assinatura do Motorista
-            </div>
-            <div class="signature-line"></div>
-            <div style="margin-top: 5px; font-size: 10px;">Nome: {{ $viagem->driver }}</div>
-            <div style="font-size: 9px; color: #6b7280;">Data: _________________</div>
+            
         </div>
         
-        <div class="signature-box">
-            <div class="value" style="text-align: center; min-height: 60px;">
-                Autorização da Empresa
+        <!-- RODAPÉ -->
+        <div class="footer">
+            <div class="footer-company">{{ $empresa_nome }}</div>
+            <div>
+                @if($empresa_morada){{ $empresa_morada }} | @endif
+                @if($empresa_telefone)Tel: {{ $empresa_telefone }} | @endif
+                @if($empresa_email)Email: {{ $empresa_email }} | @endif
+                Generated: {{ $current_datetime }}
             </div>
-            <div class="signature-line"></div>
-            <div style="margin-top: 5px; font-size: 10px;">Responsável</div>
-            <div style="font-size: 9px; color: #6b7280;">Data: _________________</div>
         </div>
-    </div>
-    
-    <!-- QR Code (opcional) -->
-    <div style="text-align: center; margin-top: 30px;">
-        <div class="qrcode-placeholder">
-            QR Code<br>Viagem {{ $viagem->trip_number }}
-        </div>
-        <div style="font-size: 8px; color: #6b7280; margin-top: 5px;">
-            Escaneie para verificar autenticidade
-        </div>
-    </div>
-    
-    <!-- Informações do Documento -->
-    <div class="document-info">
-        <div>Documento gerado por: {{ $usuario->name ?? 'Sistema FleetMS' }}</div>
-        <div>Tenant ID: {{ $tenant_id }} | Viagem ID: {{ $viagem->id }}</div>
-        <div>© {{ date('Y') }} FleetMS Transport Management System</div>
-        <div style="font-size: 8px; margin-top: 5px;">
-            Página 1 de 1 | Documento oficial - Não é válido sem assinaturas
-        </div>
+        
     </div>
 </body>
 </html>

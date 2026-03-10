@@ -1,5 +1,5 @@
 <?php
-// app/Http/Controllers/Api/OrdemDisponibilidadeController.php - OTIMIZADO
+// app/Http/Controllers/Api/OrdemDisponibilidadeController.php - VERSÃO COMPATÍVEL
 
 namespace App\Http\Controllers\Api;
 
@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Ordem;
 use App\Models\Container;
 use App\Models\BreakBulkItem;
+use App\Models\Viagem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
@@ -55,9 +56,12 @@ class OrdemDisponibilidadeController extends Controller
                     'id',
                     'numero_container',
                     'tipo_recipiente',
+                    'tipo_carga',
+                    'unidade',
                     'peso_total',
                     'status',
                     'is_available',
+                    'ordem_id',
                     'created_at'
                 )
                 ->get();
@@ -102,32 +106,40 @@ class OrdemDisponibilidadeController extends Controller
                 ], 404);
             }
 
-            // Buscar itens break bulk
+            // Buscar itens break bulk com disponibilidade
             $breakBulkItems = BreakBulkItem::where('ordem_id', $id)
                 ->where('tenant_id', $tenantId)
-                ->where('status', 'pending')
+                ->where(function($query) {
+                    $query->where('status', 'pending')
+                          ->orWhere('status', 'partially_used');
+                })
                 ->get();
 
-            // Calcular peso disponível e filtrar apenas os que têm disponibilidade
-            $itemsComDisponibilidade = $breakBulkItems->filter(function ($item) {
-                return ($item->peso_total - $item->peso_utilizado) > 0;
-            })->map(function ($item) {
-                $pesoDisponivel = $item->peso_total - $item->peso_utilizado;
-                $quantidadeDisponivel = $item->quantidade - $item->quantidade_utilizada;
+            // Calcular disponibilidade para cada item
+            $itemsComDisponibilidade = $breakBulkItems->map(function ($item) {
+                $pesoDisponivel = max(0, $item->peso_total - $item->peso_utilizado);
+                $quantidadeDisponivel = max(0, $item->quantidade - $item->quantidade_utilizada);
                 
                 return [
                     'id' => $item->id,
                     'tipo_embalagem' => $item->tipo_embalagem,
+                    'descricao_embalagem' => $item->descricao_embalagem,
                     'quantidade_total' => $item->quantidade,
-                    'quantidade_disponivel' => max(0, $quantidadeDisponivel),
+                    'quantidade_disponivel' => $quantidadeDisponivel,
                     'peso_por_unidade' => $item->peso_por_unidade,
                     'peso_total' => $item->peso_total,
-                    'peso_disponivel' => max(0, $pesoDisponivel),
-                    'status' => $item->status,
+                    'peso_disponivel' => $pesoDisponivel,
                     'unidades_embalagem' => $item->unidades_embalagem,
+                    'status' => $item->status,
                     'peso_utilizado' => $item->peso_utilizado,
-                    'quantidade_utilizada' => $item->quantidade_utilizada
+                    'quantidade_utilizada' => $item->quantidade_utilizada,
+                    'ordem_id' => $item->ordem_id,
+                    'classe_perigosa' => $item->classe_perigosa,
+                    'numero_onu' => $item->numero_onu
                 ];
+            })->filter(function ($item) {
+                // Filtrar apenas itens que têm disponibilidade
+                return $item['peso_disponivel'] > 0;
             })->values();
 
             Log::info('✅ Break bulk encontrado', [
@@ -150,21 +162,20 @@ class OrdemDisponibilidadeController extends Controller
         }
     }
 
-    // Atualizar status do container após uso
-    public function updateContainerStatus(Request $request, $containerId)
+    // ✅ MÉTODO CORRIGIDO: Atualizar container após ser usado em viagem
+    public function marcarContainerComoUsado(Request $request, $containerId)
     {
         try {
             $tenantId = $this->getTenantId();
             
-            Log::info('🔄 Atualizando status do container', [
+            Log::info('✅ Marcando container como usado', [
                 'container_id' => $containerId,
                 'tenant_id' => $tenantId,
                 'dados' => $request->all()
             ]);
             
             $validator = Validator::make($request->all(), [
-                'status' => 'required|in:loaded,in_transit,delivered,returned',
-                'viagem_id' => 'nullable|exists:viagens,id'
+                'viagem_id' => 'required|exists:viagens,id'
             ]);
             
             if ($validator->fails()) {
@@ -184,37 +195,52 @@ class OrdemDisponibilidadeController extends Controller
                 ], 404);
             }
             
-            $updateData = [
-                'status' => $request->status,
-                'is_available' => false
-            ];
-            
-            if ($request->viagem_id) {
-                $updateData['viagem_id'] = $request->viagem_id;
+            // Verificar se o container já está em uso
+            if ($container->status === 'loaded' && $container->viagem_id) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Container já está em uso na viagem #' . $container->viagem_id
+                ], 400);
             }
             
-            if ($request->status === 'loaded') {
-                $updateData['data_carregamento'] = now();
-            } else if ($request->status === 'delivered') {
-                $updateData['data_descarga'] = now();
+            // Verificar se o container ainda está disponível
+            if (!$container->is_available) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Container não está disponível para uso'
+                ], 400);
             }
             
-            $container->update($updateData);
+            // Atualizar container conforme modelo
+            $container->update([
+                'status' => 'loaded',
+                'is_available' => false,
+                'viagem_id' => $request->viagem_id,
+                'data_carregamento' => now()
+            ]);
             
-            Log::info('✅ Status do container atualizado', [
+            Log::info('✅ Container marcado como usado', [
                 'container_id' => $containerId,
-                'status' => $request->status,
+                'viagem_id' => $request->viagem_id,
+                'novo_status' => 'loaded',
+                'is_available' => false,
                 'tenant_id' => $tenantId
             ]);
             
             return response()->json([
                 'success' => true,
-                'message' => 'Status do container atualizado com sucesso!',
-                'data' => $container
+                'message' => 'Container marcado como usado na viagem!',
+                'data' => [
+                    'id' => $container->id,
+                    'numero_container' => $container->numero_container,
+                    'status' => $container->status,
+                    'is_available' => $container->is_available,
+                    'viagem_id' => $container->viagem_id
+                ]
             ]);
             
         } catch (\Exception $e) {
-            Log::error('❌ Erro ao atualizar status do container: ' . $e->getMessage());
+            Log::error('❌ Erro ao marcar container como usado: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'error' => 'Erro interno: ' . $e->getMessage()
@@ -222,22 +248,21 @@ class OrdemDisponibilidadeController extends Controller
         }
     }
 
-    // Consumir peso do break bulk
-    public function consumirBreakBulk(Request $request, $breakBulkId)
+    // ✅ MÉTODO CORRIGIDO: Consumir break bulk após ser usado em viagem
+    public function consumirBreakBulkParaViagem(Request $request, $breakBulkId)
     {
         try {
             $tenantId = $this->getTenantId();
             
-            Log::info('⚖️ Consumindo break bulk', [
+            Log::info('⚖️ Consumindo break bulk para viagem', [
                 'break_bulk_id' => $breakBulkId,
                 'tenant_id' => $tenantId,
                 'dados' => $request->all()
             ]);
             
             $validator = Validator::make($request->all(), [
-                'peso_utilizado' => 'required|numeric|min:0',
-                'quantidade_utilizada' => 'required|integer|min:0',
-                'viagem_id' => 'nullable|exists:viagens,id'
+                'peso_utilizado' => 'required|numeric|min:0.01',
+                'viagem_id' => 'required|exists:viagens,id'
             ]);
             
             if ($validator->fails()) {
@@ -257,7 +282,11 @@ class OrdemDisponibilidadeController extends Controller
                 ], 404);
             }
             
-            // Verificar se há disponibilidade suficiente
+            // Calcular quantidade baseada no peso por unidade
+            $pesoPorUnidade = $breakBulkItem->peso_por_unidade ?: 50; // padrão 50kg se não definido
+            $quantidadeUtilizada = ceil($request->peso_utilizado / $pesoPorUnidade);
+            
+            // Verificar disponibilidade
             $pesoDisponivel = $breakBulkItem->peso_total - $breakBulkItem->peso_utilizado;
             $quantidadeDisponivel = $breakBulkItem->quantidade - $breakBulkItem->quantidade_utilizada;
             
@@ -268,49 +297,52 @@ class OrdemDisponibilidadeController extends Controller
                 ], 400);
             }
             
-            if ($request->quantidade_utilizada > $quantidadeDisponivel) {
+            if ($quantidadeUtilizada > $quantidadeDisponivel) {
                 return response()->json([
                     'success' => false,
                     'error' => 'Quantidade insuficiente disponível. Disponível: ' . $quantidadeDisponivel . ' unidades'
                 ], 400);
             }
             
-            // Atualizar valores
+            // Atualizar break bulk conforme modelo
             $breakBulkItem->peso_utilizado += $request->peso_utilizado;
-            $breakBulkItem->quantidade_utilizada += $request->quantidade_utilizada;
+            $breakBulkItem->quantidade_utilizada += $quantidadeUtilizada;
             
-            // Atualizar status se todo o peso foi consumido
+            // Determinar novo status
             if ($breakBulkItem->peso_utilizado >= $breakBulkItem->peso_total) {
                 $breakBulkItem->status = 'loaded';
+            } else {
+                $breakBulkItem->status = 'partially_used';
             }
             
-            if ($request->viagem_id) {
-                $breakBulkItem->viagem_id = $request->viagem_id;
-            }
-            
+            // Associar à viagem
+            $breakBulkItem->viagem_id = $request->viagem_id;
             $breakBulkItem->save();
             
-            Log::info('✅ Break bulk consumido', [
+            Log::info('✅ Break bulk consumido para viagem', [
                 'break_bulk_id' => $breakBulkId,
+                'viagem_id' => $request->viagem_id,
                 'peso_utilizado' => $request->peso_utilizado,
-                'peso_restante' => $breakBulkItem->peso_total - $breakBulkItem->peso_utilizado,
+                'peso_total_utilizado' => $breakBulkItem->peso_utilizado,
+                'status' => $breakBulkItem->status,
                 'tenant_id' => $tenantId
             ]);
             
             return response()->json([
                 'success' => true,
-                'message' => 'Break bulk consumido com sucesso!',
+                'message' => 'Break bulk consumido para viagem com sucesso!',
                 'data' => [
                     'id' => $breakBulkItem->id,
+                    'tipo_embalagem' => $breakBulkItem->tipo_embalagem,
                     'peso_disponivel' => $breakBulkItem->peso_total - $breakBulkItem->peso_utilizado,
                     'quantidade_disponivel' => $breakBulkItem->quantidade - $breakBulkItem->quantidade_utilizada,
-                    'total_consumido' => $breakBulkItem->peso_utilizado,
+                    'peso_utilizado' => $breakBulkItem->peso_utilizado,
                     'status' => $breakBulkItem->status
                 ]
             ]);
             
         } catch (\Exception $e) {
-            Log::error('❌ Erro ao consumir break bulk: ' . $e->getMessage());
+            Log::error('❌ Erro ao consumir break bulk para viagem: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'error' => 'Erro interno: ' . $e->getMessage()
@@ -366,7 +398,10 @@ class OrdemDisponibilidadeController extends Controller
                 // Verificar break bulk disponível
                 $breakBulkDisponivel = BreakBulkItem::where('ordem_id', $ordemId)
                     ->where('tenant_id', $tenantId)
-                    ->where('status', 'pending')
+                    ->where(function($query) {
+                        $query->where('status', 'pending')
+                              ->orWhere('status', 'partially_used');
+                    })
                     ->get();
                 
                 $pesoTotalDisponivel = $breakBulkDisponivel->sum(function ($item) {
@@ -398,16 +433,11 @@ class OrdemDisponibilidadeController extends Controller
         }
     }
     
-    // Método adicional: Liberar container para uso novamente
-    public function liberarContainer($containerId)
+    // ✅ MÉTODO ADICIONAL: Verificar status atual do container
+    public function getContainerStatus($containerId)
     {
         try {
             $tenantId = $this->getTenantId();
-            
-            Log::info('🔄 Liberando container', [
-                'container_id' => $containerId,
-                'tenant_id' => $tenantId
-            ]);
             
             $container = Container::where('tenant_id', $tenantId)->find($containerId);
             
@@ -418,35 +448,20 @@ class OrdemDisponibilidadeController extends Controller
                 ], 404);
             }
             
-            // Só pode liberar containers que estavam em viagem
-            if (!in_array($container->status, ['loaded', 'in_transit'])) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Container não pode ser liberado. Status atual: ' . $container->status
-                ], 400);
-            }
-            
-            $container->update([
-                'status' => 'pending',
-                'is_available' => true,
-                'viagem_id' => null,
-                'data_carregamento' => null
-            ]);
-            
-            Log::info('✅ Container liberado', [
-                'container_id' => $containerId,
-                'novo_status' => 'pending',
-                'tenant_id' => $tenantId
-            ]);
-            
             return response()->json([
                 'success' => true,
-                'message' => 'Container liberado com sucesso!',
-                'data' => $container->fresh()
+                'data' => [
+                    'id' => $container->id,
+                    'numero_container' => $container->numero_container,
+                    'status' => $container->status,
+                    'is_available' => $container->is_available,
+                    'viagem_id' => $container->viagem_id,
+                    'ordem_id' => $container->ordem_id
+                ]
             ]);
             
         } catch (\Exception $e) {
-            Log::error('❌ Erro ao liberar container: ' . $e->getMessage());
+            Log::error('❌ Erro ao buscar status do container: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'error' => 'Erro interno: ' . $e->getMessage()
@@ -454,30 +469,11 @@ class OrdemDisponibilidadeController extends Controller
         }
     }
     
-    // Método adicional: Reverter consumo de break bulk
-    public function reverterBreakBulk(Request $request, $breakBulkId)
+    // ✅ MÉTODO ADICIONAL: Verificar status atual do break bulk
+    public function getBreakBulkStatus($breakBulkId)
     {
         try {
             $tenantId = $this->getTenantId();
-            
-            Log::info('↩️ Revertendo consumo de break bulk', [
-                'break_bulk_id' => $breakBulkId,
-                'tenant_id' => $tenantId,
-                'dados' => $request->all()
-            ]);
-            
-            $validator = Validator::make($request->all(), [
-                'peso_reverter' => 'required|numeric|min:0',
-                'quantidade_reverter' => 'required|integer|min:0',
-            ]);
-            
-            if ($validator->fails()) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Erro de validação',
-                    'errors' => $validator->errors()
-                ], 422);
-            }
             
             $breakBulkItem = BreakBulkItem::where('tenant_id', $tenantId)->find($breakBulkId);
             
@@ -488,54 +484,28 @@ class OrdemDisponibilidadeController extends Controller
                 ], 404);
             }
             
-            // Verificar se pode reverter (não pode reverter mais do que foi consumido)
-            if ($request->peso_reverter > $breakBulkItem->peso_utilizado) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Não é possível reverter mais peso do que foi consumido'
-                ], 400);
-            }
-            
-            if ($request->quantidade_reverter > $breakBulkItem->quantidade_utilizada) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Não é possível reverter mais quantidade do que foi consumida'
-                ], 400);
-            }
-            
-            // Reverter valores
-            $breakBulkItem->peso_utilizado -= $request->peso_reverter;
-            $breakBulkItem->quantidade_utilizada -= $request->quantidade_reverter;
-            
-            // Se ainda tem peso consumido, manter status como loaded, senão voltar para pending
-            if ($breakBulkItem->peso_utilizado > 0) {
-                $breakBulkItem->status = 'loaded';
-            } else {
-                $breakBulkItem->status = 'pending';
-            }
-            
-            $breakBulkItem->save();
-            
-            Log::info('✅ Consumo revertido', [
-                'break_bulk_id' => $breakBulkId,
-                'peso_revertido' => $request->peso_reverter,
-                'peso_utilizado_atual' => $breakBulkItem->peso_utilizado,
-                'tenant_id' => $tenantId
-            ]);
+            $pesoDisponivel = max(0, $breakBulkItem->peso_total - $breakBulkItem->peso_utilizado);
+            $quantidadeDisponivel = max(0, $breakBulkItem->quantidade - $breakBulkItem->quantidade_utilizada);
             
             return response()->json([
                 'success' => true,
-                'message' => 'Consumo revertido com sucesso!',
                 'data' => [
                     'id' => $breakBulkItem->id,
-                    'peso_disponivel' => $breakBulkItem->peso_total - $breakBulkItem->peso_utilizado,
-                    'quantidade_disponivel' => $breakBulkItem->quantidade - $breakBulkItem->quantidade_utilizada,
-                    'status' => $breakBulkItem->status
+                    'tipo_embalagem' => $breakBulkItem->tipo_embalagem,
+                    'status' => $breakBulkItem->status,
+                    'peso_total' => $breakBulkItem->peso_total,
+                    'peso_utilizado' => $breakBulkItem->peso_utilizado,
+                    'peso_disponivel' => $pesoDisponivel,
+                    'quantidade' => $breakBulkItem->quantidade,
+                    'quantidade_utilizada' => $breakBulkItem->quantidade_utilizada,
+                    'quantidade_disponivel' => $quantidadeDisponivel,
+                    'viagem_id' => $breakBulkItem->viagem_id,
+                    'ordem_id' => $breakBulkItem->ordem_id
                 ]
             ]);
             
         } catch (\Exception $e) {
-            Log::error('❌ Erro ao reverter break bulk: ' . $e->getMessage());
+            Log::error('❌ Erro ao buscar status do break bulk: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'error' => 'Erro interno: ' . $e->getMessage()

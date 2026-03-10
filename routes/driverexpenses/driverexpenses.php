@@ -3,38 +3,26 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\DriverExpenseController;
 
-// Rotas específicas para Driver Expenses (despesas de motoristas)
+// ============================================
+// ROTAS DE DESPESAS DE MOTORISTAS (DRIVER EXPENSES)
+// ============================================
+// ESTE ARQUIVO ESTÁ SENDO INCLUÍDO NO API.PHP
+// NÃO DUPLICAR ROTAS QUE JÁ EXISTEM NO ARQUIVO PRINCIPAL
+
 Route::prefix('driver-expenses')->group(function () {
-    // Test endpoint
+    // Apenas rotas específicas que não existem no api.php
     Route::get('/test', [DriverExpenseController::class, 'test']);
-    
-    // Tipos de despesa disponíveis
     Route::get('/tipos-despesa', [DriverExpenseController::class, 'tiposDespesa']);
-    
-    // Operações em lote
-    Route::post('/aprovar-lote', [DriverExpenseController::class, 'aprovarLote']);
-    Route::post('/cancelar-lote', [DriverExpenseController::class, 'cancelarLote']);
+    Route::post('/tipos-despesa', [DriverExpenseController::class, 'criarTipoDespesa']);
 });
 
-// Rotas para despesas por viagem (compatível com seu serviço front-end)
-Route::prefix('viagens')->group(function () {
-    Route::prefix('{viagemId}/despesas')->group(function () {
-        // Listar despesas da viagem
-        Route::get('/', [DriverExpenseController::class, 'buscarPorViagem']);
-        
-        // Criar nova despesa
-        Route::post('/', [DriverExpenseController::class, 'criarParaViagem']);
-        
-        // Aprovar todas as despesas da viagem
-        Route::post('/aprovar-todas', [DriverExpenseController::class, 'aprovarTodas']);
-        
-        // Deletar despesa específica
-        Route::delete('/{id}', [DriverExpenseController::class, 'deletar']);
-    });
-});
+// ✅ NÃO DEFINIR ROTAS DE PRINT AQUI - ELAS JÁ ESTÃO NO API.PHP
+// ❌ Route::post('{viagemId}/print-despesas', ...) - REMOVIDO
+// ❌ Route::get('{viagemId}/print-despesas', ...) - REMOVIDO
 
-// Rotas compatíveis com o nome atual (para manter compatibilidade)
+// Compatibilidade com nome antigo
 Route::prefix('despesas-motoristas')->group(function () {
+    Route::get('/', [DriverExpenseController::class, 'buscarPreCadastradas']);
     Route::post('/aprovar-lote', [DriverExpenseController::class, 'aprovarLote']);
     Route::post('/cancelar-lote', [DriverExpenseController::class, 'cancelarLote']);
 });

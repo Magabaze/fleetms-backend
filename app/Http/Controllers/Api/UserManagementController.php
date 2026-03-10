@@ -1,4 +1,5 @@
 <?php
+// app/Http/Controllers/Api/UserManagementController.php
 
 namespace App\Http\Controllers\Api;
 
@@ -11,6 +12,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 
 class UserManagementController extends Controller
 {
@@ -25,28 +27,60 @@ class UserManagementController extends Controller
         return $user ? $user->tenant_id : null;
     }
 
-    // =============== LISTAR USUÁRIOS ===============
+    /**
+     * Verificar se o usuário tem permissões de admin
+     */
+    protected function isAdmin($user)
+    {
+        if (!$user->role) {
+            return false;
+        }
+        
+        // Super admin tem todas as permissões
+        if ($user->role->is_super_admin) {
+            return true;
+        }
+        
+        // Verificar roles de admin
+        $rolesAdmin = ['administrador', 'admin', 'super admin', 'gerente'];
+        $roleNome = strtolower($user->role->nome);
+        
+        return in_array($roleNome, $rolesAdmin);
+    }
+
+    /**
+     * Verificar permissão específica
+     */
+    protected function hasPermission($user, $permissionKey)
+    {
+        if (!$user->role) {
+            return false;
+        }
+        
+        // Super admin tem todas as permissões
+        if ($user->role->is_super_admin) {
+            return true;
+        }
+        
+        return $user->role->hasPermission($permissionKey);
+    }
+
+    // ==================== USUÁRIOS ====================
+
+    /**
+     * Listar usuários
+     */
     public function index(Request $request)
     {
         try {
             $user = Auth::user();
             $tenantId = $this->getTenantId();
             
-            if (!$user->role) {
+            // Verificar permissão
+            if (!$this->hasPermission($user, 'usuarios.gerenciar') && !$this->isAdmin($user)) {
                 return response()->json([
                     'success' => false,
-                    'error' => 'Usuário sem role definido'
-                ], 403);
-            }
-            
-            $rolesPermitidos = ['Administrador', 'Admin', 'Super Admin', 'Gerente'];
-            $userRole = strtolower($user->role->nome);
-            $rolesPermitidosLower = array_map('strtolower', $rolesPermitidos);
-            
-            if (!in_array($userRole, $rolesPermitidosLower)) {
-                return response()->json([
-                    'success' => false,
-                    'error' => "Apenas administradores podem gerenciar usuários"
+                    'error' => 'Apenas administradores podem gerenciar usuários'
                 ], 403);
             }
             
@@ -77,30 +111,32 @@ class UserManagementController extends Controller
             $page = $request->get('page', 1);
             $users = $query->orderBy('created_at', 'desc')->paginate($perPage, ['*'], 'page', $page);
             
-            // Converter para camelCase
-            $usersCamelCase = $users->map(function ($user) {
-                return [
-                    'id' => $user->id,
-                    'nome' => $user->name,
-                    'email' => $user->email,
-                    'telefone' => $user->telefone,
-                    'cargo' => $user->cargo,
-                    'departamento' => $user->departamento,
-                    'roleId' => $user->role_id,
-                    'roleNome' => $user->role ? $user->role->nome : null,
-                    'idioma' => $user->idioma,
-                    'fusoHorario' => $user->fuso_horario,
-                    'ativo' => $user->ativo,
-                    'tenantId' => $user->tenant_id,
-                    'membroDesde' => $user->created_at->format('d/m/Y'),
-                    'createdAt' => $user->created_at->toISOString(),
-                    'updatedAt' => $user->updated_at->toISOString(),
-                ];
-            });
-            
             return response()->json([
                 'success' => true,
-                'data' => $usersCamelCase->toArray(),
+                'data' => $users->map(function ($user) {
+                    return [
+                        'id' => $user->id,
+                        'nome' => $user->name,
+                        'email' => $user->email,
+                        'telefone' => $user->telefone,
+                        'cargo' => $user->cargo,
+                        'departamento' => $user->departamento,
+                        'roleId' => $user->role_id,
+                        'role' => $user->role ? [
+                            'id' => $user->role->id,
+                            'nome' => $user->role->nome,
+                            'isSuperAdmin' => (bool) $user->role->is_super_admin,
+                        ] : null,
+                        'isSuperAdmin' => $user->isSuperAdmin(),
+                        'idioma' => $user->idioma,
+                        'fusoHorario' => $user->fuso_horario,
+                        'ativo' => $user->ativo,
+                        'tenantId' => $user->tenant_id,
+                        'membroDesde' => $user->created_at->format('d/m/Y'),
+                        'createdAt' => $user->created_at->toISOString(),
+                        'updatedAt' => $user->updated_at->toISOString(),
+                    ];
+                }),
                 'pagination' => [
                     'page' => $users->currentPage(),
                     'limit' => $perPage,
@@ -120,28 +156,19 @@ class UserManagementController extends Controller
         }
     }
 
-    // =============== BUSCAR USUÁRIO ===============
+    /**
+     * Buscar usuário por ID
+     */
     public function show($id)
     {
         try {
             $user = Auth::user();
             $tenantId = $this->getTenantId();
             
-            if (!$user->role) {
+            if (!$this->hasPermission($user, 'usuarios.gerenciar') && !$this->isAdmin($user)) {
                 return response()->json([
                     'success' => false,
-                    'error' => 'Usuário sem role definido'
-                ], 403);
-            }
-            
-            $rolesPermitidos = ['Administrador', 'Admin', 'Super Admin', 'Gerente'];
-            $userRole = strtolower($user->role->nome);
-            $rolesPermitidosLower = array_map('strtolower', $rolesPermitidos);
-            
-            if (!in_array($userRole, $rolesPermitidosLower)) {
-                return response()->json([
-                    'success' => false,
-                    'error' => "Apenas administradores podem visualizar usuários"
+                    'error' => 'Apenas administradores podem visualizar usuários'
                 ], 403);
             }
             
@@ -164,7 +191,12 @@ class UserManagementController extends Controller
                     'cargo' => $usuario->cargo,
                     'departamento' => $usuario->departamento,
                     'roleId' => $usuario->role_id,
-                    'roleNome' => $usuario->role ? $usuario->role->nome : null,
+                    'role' => $usuario->role ? [
+                        'id' => $usuario->role->id,
+                        'nome' => $usuario->role->nome,
+                        'isSuperAdmin' => (bool) $usuario->role->is_super_admin,
+                    ] : null,
+                    'isSuperAdmin' => $usuario->isSuperAdmin(),
                     'idioma' => $usuario->idioma,
                     'fusoHorario' => $usuario->fuso_horario,
                     'ativo' => $usuario->ativo,
@@ -184,7 +216,9 @@ class UserManagementController extends Controller
         }
     }
 
-    // =============== CRIAR USUÁRIO ===============
+    /**
+     * Criar novo usuário
+     */
     public function store(Request $request)
     {
         try {
@@ -197,25 +231,14 @@ class UserManagementController extends Controller
                 'dados' => $request->all()
             ]);
             
-            if (!$user->role) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Usuário sem role definido'
-                ], 403);
-            }
-            
-            $rolesPermitidos = ['Administrador', 'Admin', 'Super Admin'];
-            $userRole = strtolower($user->role->nome);
-            $rolesPermitidosLower = array_map('strtolower', $rolesPermitidos);
-            
-            if (!in_array($userRole, $rolesPermitidosLower)) {
+            if (!$this->hasPermission($user, 'usuarios.criar') && !$this->isAdmin($user)) {
                 return response()->json([
                     'success' => false,
                     'error' => 'Apenas administradores podem criar usuários'
                 ], 403);
             }
             
-            // Validação SIMPLIFICADA e CORRETA
+            // Validação
             $validator = Validator::make($request->all(), [
                 'nome' => 'required|string|max:255',
                 'email' => 'required|email|unique:users,email',
@@ -241,7 +264,6 @@ class UserManagementController extends Controller
             ]);
             
             if ($validator->fails()) {
-                Log::error('❌ Validação falhou', $validator->errors()->toArray());
                 return response()->json([
                     'success' => false,
                     'error' => 'Erro de validação',
@@ -261,6 +283,16 @@ class UserManagementController extends Controller
                 ], 404);
             }
             
+            // Apenas super admin pode criar outro super admin
+            if ($role->is_super_admin && !$user->role?->is_super_admin) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Apenas super administradores podem criar usuários com perfil de super admin'
+                ], 403);
+            }
+            
+            DB::beginTransaction();
+            
             $novoUsuario = User::create([
                 'name' => $request->nome,
                 'email' => $request->email,
@@ -271,10 +303,12 @@ class UserManagementController extends Controller
                 'role_id' => $request->roleId,
                 'tenant_id' => $tenantId,
                 'idioma' => $request->idioma ?? 'pt',
-                'fuso_horario' => $request->fusoHorario ?? 'America/Sao_Paulo',
+                'fuso_horario' => $request->fusoHorario ?? 'Africa/Maputo',
                 'ativo' => true,
                 'email_verified_at' => now(),
             ]);
+            
+            DB::commit();
             
             Log::info('✅ Usuário criado', [
                 'criado_por' => $user->id,
@@ -292,7 +326,11 @@ class UserManagementController extends Controller
                     'cargo' => $novoUsuario->cargo,
                     'departamento' => $novoUsuario->departamento,
                     'roleId' => $novoUsuario->role_id,
-                    'roleNome' => $novoUsuario->role ? $novoUsuario->role->nome : null,
+                    'role' => $role ? [
+                        'id' => $role->id,
+                        'nome' => $role->nome,
+                        'isSuperAdmin' => (bool) $role->is_super_admin,
+                    ] : null,
                     'idioma' => $novoUsuario->idioma,
                     'fusoHorario' => $novoUsuario->fuso_horario,
                     'ativo' => $novoUsuario->ativo,
@@ -304,6 +342,7 @@ class UserManagementController extends Controller
             ], 201);
             
         } catch (\Exception $e) {
+            DB::rollBack();
             Log::error('❌ Erro ao criar usuário: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString()
             ]);
@@ -314,7 +353,9 @@ class UserManagementController extends Controller
         }
     }
 
-    // =============== ATUALIZAR USUÁRIO ===============
+    /**
+     * Atualizar usuário
+     */
     public function update(Request $request, $id)
     {
         try {
@@ -327,18 +368,7 @@ class UserManagementController extends Controller
                 'dados' => $request->all()
             ]);
             
-            if (!$user->role) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Usuário sem role definido'
-                ], 403);
-            }
-            
-            $rolesPermitidos = ['Administrador', 'Admin', 'Super Admin'];
-            $userRole = strtolower($user->role->nome);
-            $rolesPermitidosLower = array_map('strtolower', $rolesPermitidos);
-            
-            if (!in_array($userRole, $rolesPermitidosLower)) {
+            if (!$this->hasPermission($user, 'usuarios.editar') && !$this->isAdmin($user)) {
                 return response()->json([
                     'success' => false,
                     'error' => 'Apenas administradores podem atualizar usuários'
@@ -354,7 +384,7 @@ class UserManagementController extends Controller
                 ], 404);
             }
             
-            // Validação FLEXÍVEL para UPDATE
+            // Validação para UPDATE
             $regrasValidacao = [
                 'nome' => 'required|string|max:255',
                 'email' => 'required|email|unique:users,email,' . $id,
@@ -389,7 +419,6 @@ class UserManagementController extends Controller
             $validator = Validator::make($request->all(), $regrasValidacao, $mensagens);
             
             if ($validator->fails()) {
-                Log::error('❌ Validação falhou', $validator->errors()->toArray());
                 return response()->json([
                     'success' => false,
                     'error' => 'Erro de validação',
@@ -408,6 +437,16 @@ class UserManagementController extends Controller
                     'error' => 'Perfil não encontrado ou não pertence ao seu tenant'
                 ], 404);
             }
+            
+            // Apenas super admin pode alterar para super admin
+            if ($role->is_super_admin && !$user->role?->is_super_admin && $usuario->id !== $user->id) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Apenas super administradores podem atribuir perfil de super admin'
+                ], 403);
+            }
+            
+            DB::beginTransaction();
             
             // Preparar dados para atualização
             $dadosAtualizacao = [
@@ -429,6 +468,8 @@ class UserManagementController extends Controller
             
             $usuario->update($dadosAtualizacao);
             
+            DB::commit();
+            
             Log::info('✅ Usuário atualizado', [
                 'id' => $usuario->id,
                 'tenant_id' => $usuario->tenant_id
@@ -448,7 +489,11 @@ class UserManagementController extends Controller
                     'cargo' => $usuario->cargo,
                     'departamento' => $usuario->departamento,
                     'roleId' => $usuario->role_id,
-                    'roleNome' => $usuario->role ? $usuario->role->nome : null,
+                    'role' => $usuario->role ? [
+                        'id' => $usuario->role->id,
+                        'nome' => $usuario->role->nome,
+                        'isSuperAdmin' => (bool) $usuario->role->is_super_admin,
+                    ] : null,
                     'idioma' => $usuario->idioma,
                     'fusoHorario' => $usuario->fuso_horario,
                     'ativo' => $usuario->ativo,
@@ -460,6 +505,7 @@ class UserManagementController extends Controller
             ]);
             
         } catch (\Exception $e) {
+            DB::rollBack();
             Log::error('❌ Erro ao atualizar usuário: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString()
             ]);
@@ -470,25 +516,16 @@ class UserManagementController extends Controller
         }
     }
 
-    // =============== EXCLUIR USUÁRIO ===============
+    /**
+     * Excluir usuário
+     */
     public function destroy($id)
     {
         try {
             $currentUser = Auth::user();
             $tenantId = $this->getTenantId();
             
-            if (!$currentUser->role) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Usuário sem role definido'
-                ], 403);
-            }
-            
-            $rolesPermitidos = ['Administrador', 'Admin', 'Super Admin'];
-            $userRole = strtolower($currentUser->role->nome);
-            $rolesPermitidosLower = array_map('strtolower', $rolesPermitidos);
-            
-            if (!in_array($userRole, $rolesPermitidosLower)) {
+            if (!$this->hasPermission($currentUser, 'usuarios.excluir') && !$this->isAdmin($currentUser)) {
                 return response()->json([
                     'success' => false,
                     'error' => 'Apenas administradores podem excluir usuários'
@@ -511,7 +548,26 @@ class UserManagementController extends Controller
                 ], 400);
             }
             
+            // Verificar se é o último admin
+            if ($usuario->role && $this->isAdmin($usuario)) {
+                $adminsCount = User::where('tenant_id', $tenantId)
+                    ->whereHas('role', function($q) {
+                        $q->where('is_super_admin', true)
+                          ->orWhereIn('nome', ['Administrador', 'Admin', 'Super Admin', 'Gerente']);
+                    })
+                    ->count();
+                
+                if ($adminsCount <= 1) {
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'Não é possível excluir o último administrador do sistema'
+                    ], 400);
+                }
+            }
+            
+            DB::beginTransaction();
             $usuario->delete();
+            DB::commit();
             
             Log::info('✅ Usuário excluído', [
                 'excluido_por' => $currentUser->id,
@@ -525,6 +581,7 @@ class UserManagementController extends Controller
             ]);
             
         } catch (\Exception $e) {
+            DB::rollBack();
             Log::error('❌ Erro ao excluir usuário: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
@@ -533,76 +590,419 @@ class UserManagementController extends Controller
         }
     }
 
-    // =============== LISTAR ROLES ===============
+    // ==================== ROLES / PERFIS ====================
+
+    /**
+     * Listar roles/perfis
+     */
     public function getRoles()
     {
         try {
             $user = Auth::user();
             $tenantId = $this->getTenantId();
             
-            $roles = Role::where('tenant_id', $tenantId)
-                ->orderBy('nome')
-                ->get();
+            if (!$this->hasPermission($user, 'perfis.gerenciar') && !$this->isAdmin($user)) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Apenas administradores podem visualizar perfis'
+                ], 403);
+            }
             
-            // Converter para camelCase
-            $rolesCamelCase = $roles->map(function ($role) {
-                return [
-                    'id' => $role->id,
-                    'nome' => $role->nome,
-                    'descricao' => $role->descricao,
-                    'isSuperAdmin' => (bool) $role->is_super_admin,
-                    'tenantId' => $role->tenant_id,
-                    'createdAt' => $role->created_at->toISOString(),
-                    'updatedAt' => $role->updated_at->toISOString(),
-                ];
-            });
+            $roles = Role::where('tenant_id', $tenantId)
+                ->with('permissions')
+                ->withCount('users')
+                ->orderBy('nome')
+                ->get()
+                ->map(function ($role) use ($user) {
+                    return [
+                        'id' => $role->id,
+                        'nome' => $role->nome,
+                        'descricao' => $role->descricao,
+                        'isSuperAdmin' => (bool) $role->is_super_admin,
+                        'tenantId' => $role->tenant_id,
+                        'usersCount' => $role->users_count,
+                        'permissoes' => $role->permissions->pluck('chave')->toArray(),
+                        'createdAt' => $role->created_at->toISOString(),
+                        'updatedAt' => $role->updated_at->toISOString(),
+                        'canEdit' => $user->role && ($user->role->is_super_admin || !$role->is_super_admin),
+                        'canDelete' => $user->role && ($user->role->is_super_admin || !$role->is_super_admin) && $role->users_count === 0,
+                    ];
+                });
             
             return response()->json([
                 'success' => true,
-                'data' => $rolesCamelCase->toArray()
+                'data' => $roles
             ]);
             
         } catch (\Exception $e) {
             Log::error('❌ Erro ao listar roles: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'error' => 'Erro ao listar roles: ' . $e->getMessage()
+                'error' => 'Erro ao listar perfis: ' . $e->getMessage()
             ], 500);
         }
     }
 
-    // =============== LISTAR PERMISSÕES ===============
-    public function getPermissions()
+    /**
+     * Criar novo role/perfil
+     */
+    public function storeRole(Request $request)
     {
         try {
+            $user = Auth::user();
             $tenantId = $this->getTenantId();
             
-            $permissions = Permission::where('tenant_id', $tenantId)
-                ->orderBy('modulo')
-                ->orderBy('nome')
-                ->get()
-                ->groupBy('modulo');
+            Log::info('📥 POST /api/usuarios/roles', [
+                'user_id' => $user->id,
+                'tenant_id' => $tenantId,
+                'dados' => $request->all()
+            ]);
             
-            // Converter para camelCase
-            $permissionsCamelCase = [];
-            foreach ($permissions as $modulo => $perms) {
-                $permissionsCamelCase[$modulo] = $perms->map(function ($perm) {
-                    return [
-                        'id' => $perm->id,
-                        'nome' => $perm->nome,
-                        'chave' => $perm->chave,
-                        'descricao' => $perm->descricao,
-                        'modulo' => $perm->modulo,
-                        'tenantId' => $perm->tenant_id,
-                        'createdAt' => $perm->created_at->toISOString(),
-                        'updatedAt' => $perm->updated_at->toISOString(),
-                    ];
-                })->toArray();
+            if (!$this->hasPermission($user, 'perfis.criar') && !$this->isAdmin($user)) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Apenas administradores podem criar perfis'
+                ], 403);
             }
+            
+            $validator = Validator::make($request->all(), [
+                'nome' => 'required|string|max:255|unique:roles,nome,NULL,id,tenant_id,' . $tenantId,
+                'descricao' => 'nullable|string|max:500',
+                'is_super_admin' => 'nullable|boolean',
+                'permissoes' => 'nullable|array',
+                'permissoes.*' => 'string|max:255',
+            ], [
+                'nome.required' => 'O nome do perfil é obrigatório.',
+                'nome.unique' => 'Já existe um perfil com este nome.',
+            ]);
+            
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Erro de validação',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+            
+            // Apenas super admin pode criar role super admin
+            if ($request->is_super_admin && !$user->role?->is_super_admin) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Apenas super administradores podem criar perfis de super admin'
+                ], 403);
+            }
+            
+            DB::beginTransaction();
+            
+            $role = Role::create([
+                'nome' => $request->nome,
+                'descricao' => $request->descricao,
+                'tenant_id' => $tenantId,
+                'is_super_admin' => $request->is_super_admin ?? false,
+            ]);
+            
+            // Associar permissões se fornecidas e NÃO for super admin
+            if ($request->has('permissoes') && is_array($request->permissoes) && !$request->is_super_admin) {
+                // Buscar permissões pelo CHAVE (string) e pelo tenant
+                $permissions = Permission::whereIn('chave', $request->permissoes)
+                    ->where('tenant_id', $tenantId)
+                    ->get();
+                
+                // Verificar se todas as permissões foram encontradas
+                if ($permissions->count() !== count($request->permissoes)) {
+                    $encontradas = $permissions->pluck('chave')->toArray();
+                    $naoEncontradas = array_diff($request->permissoes, $encontradas);
+                    
+                    DB::rollBack();
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'Algumas permissões não existem',
+                        'errors' => [
+                            'permissoes' => ['As seguintes permissões são inválidas: ' . implode(', ', $naoEncontradas)]
+                        ]
+                    ], 422);
+                }
+                
+                // Sincronizar usando IDs
+                $permissionIds = $permissions->pluck('id')->toArray();
+                $role->permissions()->sync($permissionIds);
+            }
+            
+            DB::commit();
+            
+            Log::info('✅ Perfil criado', [
+                'criado_por' => $user->id,
+                'role_id' => $role->id,
+                'tenant' => $tenantId
+            ]);
             
             return response()->json([
                 'success' => true,
-                'data' => $permissionsCamelCase
+                'data' => [
+                    'id' => $role->id,
+                    'nome' => $role->nome,
+                    'descricao' => $role->descricao,
+                    'isSuperAdmin' => (bool) $role->is_super_admin,
+                    'permissoes' => $role->permissions()->pluck('chave')->toArray(),
+                    'tenantId' => $role->tenant_id,
+                    'createdAt' => $role->created_at->toISOString(),
+                    'updatedAt' => $role->updated_at->toISOString(),
+                ],
+                'message' => 'Perfil criado com sucesso!'
+            ], 201);
+            
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('❌ Erro ao criar perfil: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'success' => false,
+                'error' => 'Erro ao criar perfil: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Atualizar role/perfil
+     */
+    public function updateRole(Request $request, $id)
+    {
+        try {
+            $user = Auth::user();
+            $tenantId = $this->getTenantId();
+            
+            Log::info('📥 PUT /api/usuarios/roles/' . $id, [
+                'user_id' => $user->id,
+                'tenant_id' => $tenantId,
+                'dados' => $request->all()
+            ]);
+            
+            if (!$this->hasPermission($user, 'perfis.editar') && !$this->isAdmin($user)) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Apenas administradores podem atualizar perfis'
+                ], 403);
+            }
+            
+            $role = Role::where('tenant_id', $tenantId)->find($id);
+            
+            if (!$role) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Perfil não encontrado'
+                ], 404);
+            }
+            
+            // Não permitir editar roles de super admin (exceto para super admin)
+            if ($role->is_super_admin && !$user->role?->is_super_admin) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Não é possível editar perfis de super administrador'
+                ], 403);
+            }
+            
+            $validator = Validator::make($request->all(), [
+                'nome' => 'required|string|max:255|unique:roles,nome,' . $id . ',id,tenant_id,' . $tenantId,
+                'descricao' => 'nullable|string|max:500',
+                'permissoes' => 'nullable|array',
+                'permissoes.*' => 'string|max:255',
+            ], [
+                'nome.required' => 'O nome do perfil é obrigatório.',
+                'nome.unique' => 'Já existe um perfil com este nome.',
+            ]);
+            
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Erro de validação',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+            
+            DB::beginTransaction();
+            
+            $role->update([
+                'nome' => $request->nome,
+                'descricao' => $request->descricao,
+            ]);
+            
+            // Atualizar permissões se fornecidas
+            if ($request->has('permissoes')) {
+                // Buscar permissões pelo CHAVE (string) e pelo tenant
+                $permissions = Permission::whereIn('chave', $request->permissoes)
+                    ->where('tenant_id', $tenantId)
+                    ->get();
+                
+                // Verificar se todas as permissões foram encontradas
+                if ($permissions->count() !== count($request->permissoes)) {
+                    $encontradas = $permissions->pluck('chave')->toArray();
+                    $naoEncontradas = array_diff($request->permissoes, $encontradas);
+                    
+                    DB::rollBack();
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'Algumas permissões não existem',
+                        'errors' => [
+                            'permissoes' => ['As seguintes permissões são inválidas: ' . implode(', ', $naoEncontradas)]
+                        ]
+                    ], 422);
+                }
+                
+                // Sincronizar usando IDs
+                $permissionIds = $permissions->pluck('id')->toArray();
+                $role->permissions()->sync($permissionIds);
+            }
+            
+            DB::commit();
+            
+            Log::info('✅ Perfil atualizado', [
+                'role_id' => $role->id,
+                'tenant' => $tenantId
+            ]);
+            
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'id' => $role->id,
+                    'nome' => $role->nome,
+                    'descricao' => $role->descricao,
+                    'isSuperAdmin' => (bool) $role->is_super_admin,
+                    'permissoes' => $role->fresh()->permissions()->pluck('chave')->toArray(),
+                    'tenantId' => $role->tenant_id,
+                    'createdAt' => $role->created_at->toISOString(),
+                    'updatedAt' => $role->updated_at->toISOString(),
+                ],
+                'message' => 'Perfil atualizado com sucesso!'
+            ]);
+            
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('❌ Erro ao atualizar perfil: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'success' => false,
+                'error' => 'Erro ao atualizar perfil: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Excluir role/perfil
+     */
+    public function destroyRole($id)
+    {
+        try {
+            $currentUser = Auth::user();
+            $tenantId = $this->getTenantId();
+            
+            if (!$this->hasPermission($currentUser, 'perfis.excluir') && !$this->isAdmin($currentUser)) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Apenas administradores podem excluir perfis'
+                ], 403);
+            }
+            
+            $role = Role::where('tenant_id', $tenantId)->find($id);
+            
+            if (!$role) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Perfil não encontrado'
+                ], 404);
+            }
+            
+            // Não permitir excluir roles de super admin
+            if ($role->is_super_admin) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Não é possível excluir perfis de super administrador'
+                ], 403);
+            }
+            
+            // Verificar se há usuários usando este role
+            $usuariosComRole = $role->users()->count();
+            if ($usuariosComRole > 0) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Não é possível excluir o perfil pois existem usuários associados a ele.'
+                ], 400);
+            }
+            
+            DB::beginTransaction();
+            
+            // Remover relações com permissões
+            $role->permissions()->detach();
+            $role->delete();
+            
+            DB::commit();
+            
+            Log::info('✅ Perfil excluído', [
+                'excluido_por' => $currentUser->id,
+                'role_id' => $id,
+                'tenant' => $tenantId
+            ]);
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Perfil excluído com sucesso!'
+            ]);
+            
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('❌ Erro ao excluir perfil: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'error' => 'Erro ao excluir perfil: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    // ==================== PERMISSÕES ====================
+
+    /**
+     * Listar todas as permissões disponíveis
+     */
+    public function getPermissions()
+    {
+        try {
+            $user = Auth::user();
+            $tenantId = $this->getTenantId();
+            
+            if (!$this->hasPermission($user, 'permissoes.gerenciar') && !$this->isAdmin($user)) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Apenas administradores podem visualizar permissões'
+                ], 403);
+            }
+            
+            // SEM A COLUNA 'ordem' - usando apenas modulo e id
+            $permissions = Permission::where('tenant_id', $tenantId)
+                ->orderBy('modulo')
+                ->orderBy('id') // Usar id como fallback em vez de 'ordem'
+                ->get()
+                ->groupBy('modulo')
+                ->map(function ($perms) {
+                    return $perms->map(function ($perm) {
+                        return [
+                            'id' => $perm->id,
+                            'nome' => $perm->nome,
+                            'chave' => $perm->chave,
+                            'descricao' => $perm->descricao,
+                            'modulo' => $perm->modulo,
+                            'tipo' => $perm->tipo ?? 'botao',
+                            'icone' => $perm->icone ?? null,
+                            'tenantId' => $perm->tenant_id,
+                            'createdAt' => $perm->created_at->toISOString(),
+                            'updatedAt' => $perm->updated_at->toISOString(),
+                        ];
+                    })->values();
+                });
+            
+            return response()->json([
+                'success' => true,
+                'data' => $permissions
             ]);
             
         } catch (\Exception $e) {
@@ -614,7 +1014,302 @@ class UserManagementController extends Controller
         }
     }
 
-    // =============== ATUALIZAR MINHA SENHA ===============
+    /**
+     * Buscar permissões de um role específico
+     */
+    public function getRolePermissions($roleId)
+    {
+        try {
+            $user = Auth::user();
+            $tenantId = $this->getTenantId();
+            
+            if (!$this->hasPermission($user, 'permissoes.gerenciar') && !$this->isAdmin($user)) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Apenas administradores podem visualizar permissões'
+                ], 403);
+            }
+            
+            $role = Role::where('tenant_id', $tenantId)->find($roleId);
+            
+            if (!$role) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Perfil não encontrado'
+                ], 404);
+            }
+            
+            $permissions = $role->permissions()->pluck('chave')->toArray();
+            
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'roleId' => $role->id,
+                    'roleNome' => $role->nome,
+                    'permissions' => $permissions
+                ]
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('❌ Erro ao buscar permissões do perfil: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'error' => 'Erro ao buscar permissões do perfil: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Atualizar permissões de um role
+     */
+    public function updateRolePermissions(Request $request, $roleId)
+    {
+        try {
+            $user = Auth::user();
+            $tenantId = $this->getTenantId();
+            
+            Log::info('📥 PUT /api/usuarios/roles/' . $roleId . '/permissoes', [
+                'user_id' => $user->id,
+                'tenant_id' => $tenantId,
+                'dados' => $request->all()
+            ]);
+            
+            if (!$this->hasPermission($user, 'permissoes.atribuir') && !$this->isAdmin($user)) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Apenas administradores podem atribuir permissões'
+                ], 403);
+            }
+            
+            $role = Role::where('tenant_id', $tenantId)->find($roleId);
+            
+            if (!$role) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Perfil não encontrado'
+                ], 404);
+            }
+            
+            // Não permitir editar permissões de roles de super admin
+            if ($role->is_super_admin && !$user->role?->is_super_admin) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Não é possível editar permissões de perfis de super administrador'
+                ], 403);
+            }
+            
+            $validator = Validator::make($request->all(), [
+                'permissions' => 'required|array',
+                'permissions.*' => 'string|max:255',
+            ], [
+                'permissions.required' => 'As permissões são obrigatórias.',
+                'permissions.array' => 'As permissões devem ser um array.',
+            ]);
+            
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Erro de validação',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+            
+            DB::beginTransaction();
+            
+            // Buscar permissões pelo CHAVE (string) e pelo tenant
+            $permissions = Permission::whereIn('chave', $request->permissions)
+                ->where('tenant_id', $tenantId)
+                ->get();
+            
+            // Verificar se todas as permissões foram encontradas
+            if ($permissions->count() !== count($request->permissions)) {
+                $encontradas = $permissions->pluck('chave')->toArray();
+                $naoEncontradas = array_diff($request->permissions, $encontradas);
+                
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Algumas permissões não existem',
+                    'errors' => [
+                        'permissions' => ['As seguintes permissões são inválidas: ' . implode(', ', $naoEncontradas)]
+                    ]
+                ], 422);
+            }
+            
+            $permissionIds = $permissions->pluck('id')->toArray();
+            $role->permissions()->sync($permissionIds);
+            
+            DB::commit();
+            
+            Log::info('✅ Permissões atualizadas', [
+                'role_id' => $role->id,
+                'permissions_count' => count($request->permissions),
+                'tenant' => $tenantId
+            ]);
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Permissões atualizadas com sucesso!',
+                'data' => [
+                    'permissions' => $role->fresh()->permissions()->pluck('chave')->toArray()
+                ]
+            ]);
+            
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('❌ Erro ao atualizar permissões do perfil: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'success' => false,
+                'error' => 'Erro ao atualizar permissões: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    // ==================== PERFIL DO USUÁRIO LOGADO ====================
+
+    /**
+     * Buscar perfil do usuário logado
+     */
+    public function meuPerfil()
+    {
+        try {
+            $user = Auth::user();
+            
+            $user->load('role');
+            
+            // Buscar permissões do usuário
+            $permissoes = [];
+            if ($user->role) {
+                if ($user->role->is_super_admin) {
+                    // Super admin tem todas as permissões
+                    $permissoes = Permission::where('tenant_id', $user->tenant_id)
+                        ->pluck('chave')
+                        ->toArray();
+                } else {
+                    $permissoes = $user->role->permissions()->pluck('chave')->toArray();
+                }
+            }
+            
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'id' => $user->id,
+                    'nome' => $user->name,
+                    'email' => $user->email,
+                    'telefone' => $user->telefone,
+                    'cargo' => $user->cargo,
+                    'departamento' => $user->departamento,
+                    'roleId' => $user->role_id,
+                    'role' => $user->role ? [
+                        'id' => $user->role->id,
+                        'nome' => $user->role->nome,
+                        'isSuperAdmin' => (bool) $user->role->is_super_admin,
+                    ] : null,
+                    'isSuperAdmin' => $user->isSuperAdmin(),
+                    'idioma' => $user->idioma,
+                    'fusoHorario' => $user->fuso_horario,
+                    'ativo' => $user->ativo,
+                    'tenantId' => $user->tenant_id,
+                    'permissoes' => $permissoes,
+                    'membroDesde' => $user->created_at->format('d/m/Y'),
+                    'createdAt' => $user->created_at->toISOString(),
+                    'updatedAt' => $user->updated_at->toISOString(),
+                ]
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('❌ Erro ao buscar perfil: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'error' => 'Erro ao buscar perfil: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Atualizar perfil do usuário logado
+     */
+    public function atualizarMeuPerfil(Request $request)
+    {
+        try {
+            $user = Auth::user();
+            
+            Log::info('📥 PUT /api/usuarios/meu-perfil', [
+                'user_id' => $user->id,
+                'dados' => $request->all()
+            ]);
+            
+            $validator = Validator::make($request->all(), [
+                'nome' => 'required|string|max:255',
+                'email' => 'required|email|unique:users,email,' . $user->id,
+                'telefone' => 'nullable|string|max:20',
+                'cargo' => 'nullable|string|max:255',
+                'departamento' => 'nullable|string|max:255',
+                'idioma' => 'nullable|string|max:10',
+                'fusoHorario' => 'nullable|string|max:50',
+            ], [
+                'nome.required' => 'O campo nome é obrigatório.',
+                'email.required' => 'O campo e-mail é obrigatório.',
+                'email.email' => 'Digite um e-mail válido.',
+                'email.unique' => 'Este e-mail já está em uso.',
+            ]);
+            
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Erro de validação',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+            
+            DB::beginTransaction();
+            
+            $user->update([
+                'name' => $request->nome,
+                'email' => $request->email,
+                'telefone' => $request->telefone,
+                'cargo' => $request->cargo,
+                'departamento' => $request->departamento,
+                'idioma' => $request->idioma ?? $user->idioma,
+                'fuso_horario' => $request->fusoHorario ?? $user->fuso_horario,
+            ]);
+            
+            DB::commit();
+            
+            Log::info('✅ Perfil atualizado', [
+                'usuario_id' => $user->id
+            ]);
+            
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'id' => $user->id,
+                    'nome' => $user->name,
+                    'email' => $user->email,
+                    'telefone' => $user->telefone,
+                    'cargo' => $user->cargo,
+                    'departamento' => $user->departamento,
+                    'idioma' => $user->idioma,
+                    'fusoHorario' => $user->fuso_horario,
+                ],
+                'message' => 'Perfil atualizado com sucesso!'
+            ]);
+            
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('❌ Erro ao atualizar perfil: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'error' => 'Erro ao atualizar perfil: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Atualizar senha do usuário logado
+     */
     public function atualizarMinhaSenha(Request $request)
     {
         try {
@@ -652,8 +1347,12 @@ class UserManagementController extends Controller
                 ], 400);
             }
             
+            DB::beginTransaction();
+            
             $user->password = Hash::make($request->novaSenha);
             $user->save();
+            
+            DB::commit();
             
             Log::info('✅ Senha atualizada', [
                 'usuario_id' => $user->id,
@@ -666,6 +1365,7 @@ class UserManagementController extends Controller
             ]);
             
         } catch (\Exception $e) {
+            DB::rollBack();
             Log::error('❌ Erro ao atualizar senha: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
@@ -674,463 +1374,194 @@ class UserManagementController extends Controller
         }
     }
 
-    // =============== MEU PERFIL ===============
-    public function meuPerfil()
+    /**
+     * Verificar se usuário tem uma permissão específica
+     */
+    public function verificarPermissao($permissionKey)
     {
         try {
             $user = Auth::user();
             
-            $user->load('role');
+            if (!$user->role) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Usuário sem role definido',
+                    'hasPermission' => false
+                ], 403);
+            }
+            
+            $hasPermission = $this->hasPermission($user, $permissionKey);
             
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'id' => $user->id,
-                    'nome' => $user->name,
-                    'email' => $user->email,
-                    'telefone' => $user->telefone,
-                    'cargo' => $user->cargo,
-                    'departamento' => $user->departamento,
-                    'roleId' => $user->role_id,
-                    'roleNome' => $user->role ? $user->role->nome : null,
-                    'isSuperAdmin' => $user->isSuperAdmin(),
-                    'idioma' => $user->idioma,
-                    'fusoHorario' => $user->fuso_horario,
-                    'ativo' => $user->ativo,
-                    'tenantId' => $user->tenant_id,
-                    'membroDesde' => $user->created_at->format('d/m/Y'),
-                    'createdAt' => $user->created_at->toISOString(),
-                    'updatedAt' => $user->updated_at->toISOString(),
+                    'permission' => $permissionKey,
+                    'hasPermission' => $hasPermission
                 ]
             ]);
             
         } catch (\Exception $e) {
-            Log::error('❌ Erro ao buscar perfil: ' . $e->getMessage());
+            Log::error('❌ Erro ao verificar permissão: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'error' => 'Erro ao buscar perfil: ' . $e->getMessage()
+                'error' => 'Erro ao verificar permissão: ' . $e->getMessage()
             ], 500);
         }
     }
 
-    // =============== CRIAR ROLE ===============
-    public function storeRole(Request $request)
+    /**
+     * Buscar todas as permissões do usuário logado
+     */
+    public function minhasPermissoes()
     {
         try {
             $user = Auth::user();
-            $tenantId = $this->getTenantId();
-            
-            Log::info('📥 POST /api/usuarios/roles', [
-                'user_id' => $user->id,
-                'tenant_id' => $tenantId,
-                'dados' => $request->all()
-            ]);
             
             if (!$user->role) {
                 return response()->json([
                     'success' => false,
-                    'error' => 'Usuário sem role definido'
+                    'error' => 'Usuário sem role definido',
+                    'data' => []
                 ], 403);
             }
             
-            // Apenas Super Admin ou Administrador pode criar roles
-            $rolesPermitidos = ['Administrador', 'Admin', 'Super Admin'];
-            $userRole = strtolower($user->role->nome);
-            $rolesPermitidosLower = array_map('strtolower', $rolesPermitidos);
-            
-            if (!in_array($userRole, $rolesPermitidosLower)) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Apenas administradores podem criar perfis'
-                ], 403);
+            if ($user->role->is_super_admin) {
+                $permissions = Permission::where('tenant_id', $user->tenant_id)
+                    ->pluck('chave')
+                    ->toArray();
+            } else {
+                $permissions = $user->role->getPermissionKeys();
             }
-            
-            $validator = Validator::make($request->all(), [
-                'nome' => 'required|string|max:255|unique:roles,nome,NULL,id,tenant_id,' . $tenantId,
-                'descricao' => 'nullable|string|max:500',
-                'permissoes' => 'nullable|array',
-                'permissoes.*' => 'string|max:255',
-            ], [
-                'nome.required' => 'O nome do perfil é obrigatório.',
-                'nome.unique' => 'Já existe um perfil com este nome.',
-                'permissoes.array' => 'As permissões devem ser um array.',
-            ]);
-            
-            if ($validator->fails()) {
-                Log::error('❌ Validação falhou', $validator->errors()->toArray());
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Erro de validação',
-                    'errors' => $validator->errors()
-                ], 422);
-            }
-            
-            $role = Role::create([
-                'nome' => $request->nome,
-                'descricao' => $request->descricao,
-                'tenant_id' => $tenantId,
-                'is_super_admin' => false,
-            ]);
-            
-            // Salvar permissões se fornecidas
-            if ($request->has('permissoes') && is_array($request->permissoes)) {
-                // Aqui você pode associar as permissões ao role
-                // Dependendo de como sua tabela de relação está estruturada
-                // Exemplo: $role->permissions()->sync($permissionIds);
-            }
-            
-            Log::info('✅ Role criado', [
-                'criado_por' => $user->id,
-                'role_id' => $role->id,
-                'tenant' => $tenantId
-            ]);
             
             return response()->json([
                 'success' => true,
-                'data' => [
-                    'id' => $role->id,
-                    'nome' => $role->nome,
-                    'descricao' => $role->descricao,
-                    'isSuperAdmin' => (bool) $role->is_super_admin,
-                    'permissoes' => $request->permissoes ?? [],
-                    'tenantId' => $role->tenant_id,
-                    'createdAt' => $role->created_at->toISOString(),
-                    'updatedAt' => $role->updated_at->toISOString(),
-                ],
-                'message' => 'Perfil criado com sucesso!'
-            ], 201);
+                'data' => $permissions
+            ]);
             
         } catch (\Exception $e) {
-            Log::error('❌ Erro ao criar role: ' . $e->getMessage(), [
-                'trace' => $e->getTraceAsString()
-            ]);
+            Log::error('❌ Erro ao buscar minhas permissões: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'error' => 'Erro ao criar perfil: ' . $e->getMessage()
+                'error' => 'Erro ao buscar permissões: ' . $e->getMessage()
             ], 500);
         }
     }
 
-    // =============== ATUALIZAR ROLE ===============
-    public function updateRole(Request $request, $id)
-    {
-        try {
-            $user = Auth::user();
-            $tenantId = $this->getTenantId();
-            
-            Log::info('📥 PUT /api/usuarios/roles/' . $id, [
-                'user_id' => $user->id,
-                'tenant_id' => $tenantId,
-                'dados' => $request->all()
-            ]);
-            
-            if (!$user->role) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Usuário sem role definido'
-                ], 403);
-            }
-            
-            // Apenas Super Admin ou Administrador pode atualizar roles
-            $rolesPermitidos = ['Administrador', 'Admin', 'Super Admin'];
-            $userRole = strtolower($user->role->nome);
-            $rolesPermitidosLower = array_map('strtolower', $rolesPermitidos);
-            
-            if (!in_array($userRole, $rolesPermitidosLower)) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Apenas administradores podem atualizar perfis'
-                ], 403);
-            }
-            
-            $role = Role::where('tenant_id', $tenantId)->find($id);
-            
-            if (!$role) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Perfil não encontrado'
-                ], 404);
-            }
-            
-            // Não permitir editar roles de super admin
-            if ($role->is_super_admin && !$user->isSuperAdmin()) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Não é possível editar perfis de super administrador'
-                ], 403);
-            }
-            
-            $validator = Validator::make($request->all(), [
-                'nome' => 'required|string|max:255|unique:roles,nome,' . $id . ',id,tenant_id,' . $tenantId,
-                'descricao' => 'nullable|string|max:500',
-                'permissoes' => 'nullable|array',
-                'permissoes.*' => 'string|max:255',
-            ], [
-                'nome.required' => 'O nome do perfil é obrigatório.',
-                'nome.unique' => 'Já existe um perfil com este nome.',
-                'permissoes.array' => 'As permissões devem ser um array.',
-            ]);
-            
-            if ($validator->fails()) {
-                Log::error('❌ Validação falhou', $validator->errors()->toArray());
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Erro de validação',
-                    'errors' => $validator->errors()
-                ], 422);
-            }
-            
-            $role->update([
-                'nome' => $request->nome,
-                'descricao' => $request->descricao,
-            ]);
-            
-            // Atualizar permissões se fornecidas
-            if ($request->has('permissoes') && is_array($request->permissoes)) {
-                // Atualizar relação de permissões
-                // Exemplo: $role->permissions()->sync($permissionIds);
-            }
-            
-            Log::info('✅ Role atualizado', [
-                'role_id' => $role->id,
-                'tenant' => $tenantId
-            ]);
-            
-            return response()->json([
-                'success' => true,
-                'data' => [
-                    'id' => $role->id,
-                    'nome' => $role->nome,
-                    'descricao' => $role->descricao,
-                    'isSuperAdmin' => (bool) $role->is_super_admin,
-                    'permissoes' => $request->permissoes ?? [],
-                    'tenantId' => $role->tenant_id,
-                    'createdAt' => $role->created_at->toISOString(),
-                    'updatedAt' => $role->updated_at->toISOString(),
-                ],
-                'message' => 'Perfil atualizado com sucesso!'
-            ]);
-            
-        } catch (\Exception $e) {
-            Log::error('❌ Erro ao atualizar role: ' . $e->getMessage(), [
-                'trace' => $e->getTraceAsString()
-            ]);
-            return response()->json([
-                'success' => false,
-                'error' => 'Erro ao atualizar perfil: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    // =============== EXCLUIR ROLE ===============
-    public function destroyRole($id)
+    /**
+     * Alternar status do usuário (ativar/desativar)
+     */
+    public function toggleStatus($id)
     {
         try {
             $currentUser = Auth::user();
             $tenantId = $this->getTenantId();
             
-            if (!$currentUser->role) {
+            if (!$this->hasPermission($currentUser, 'usuarios.editar') && !$this->isAdmin($currentUser)) {
                 return response()->json([
                     'success' => false,
-                    'error' => 'Usuário sem role definido'
+                    'error' => 'Apenas administradores podem alterar status de usuários'
                 ], 403);
             }
             
-            // Apenas Super Admin ou Administrador pode excluir roles
-            $rolesPermitidos = ['Administrador', 'Admin', 'Super Admin'];
-            $userRole = strtolower($currentUser->role->nome);
-            $rolesPermitidosLower = array_map('strtolower', $rolesPermitidos);
+            $usuario = User::where('tenant_id', $tenantId)->find($id);
             
-            if (!in_array($userRole, $rolesPermitidosLower)) {
+            if (!$usuario) {
                 return response()->json([
                     'success' => false,
-                    'error' => 'Apenas administradores podem excluir perfis'
-                ], 403);
-            }
-            
-            $role = Role::where('tenant_id', $tenantId)->find($id);
-            
-            if (!$role) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Perfil não encontrado'
+                    'error' => 'Usuário não encontrado'
                 ], 404);
             }
             
-            // Não permitir excluir roles de super admin
-            if ($role->is_super_admin) {
+            if ($usuario->id === $currentUser->id) {
                 return response()->json([
                     'success' => false,
-                    'error' => 'Não é possível excluir perfis de super administrador'
-                ], 403);
-            }
-            
-            // Verificar se há usuários usando este role
-            $usuariosComRole = User::where('role_id', $id)->count();
-            if ($usuariosComRole > 0) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Não é possível excluir o perfil pois existem usuários associados a ele.'
+                    'error' => 'Você não pode alterar seu próprio status'
                 ], 400);
             }
             
-            $role->delete();
+            DB::beginTransaction();
             
-            Log::info('✅ Role excluído', [
-                'excluido_por' => $currentUser->id,
-                'role_id' => $id,
-                'tenant' => $tenantId
+            $usuario->ativo = !$usuario->ativo;
+            $usuario->save();
+            
+            DB::commit();
+            
+            Log::info('✅ Status do usuário alterado', [
+                'alterado_por' => $currentUser->id,
+                'usuario_id' => $id,
+                'novo_status' => $usuario->ativo
             ]);
-            
-            return response()->json([
-                'success' => true,
-                'message' => 'Perfil excluído com sucesso!'
-            ]);
-            
-        } catch (\Exception $e) {
-            Log::error('❌ Erro ao excluir role: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'error' => 'Erro ao excluir perfil: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    // =============== PERMISSÕES DE UM ROLE ===============
-    public function getRolePermissions($roleId)
-    {
-        try {
-            $user = Auth::user();
-            $tenantId = $this->getTenantId();
-            
-            if (!$user->role) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Usuário sem role definido'
-                ], 403);
-            }
-            
-            $role = Role::where('tenant_id', $tenantId)->find($roleId);
-            
-            if (!$role) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Perfil não encontrado'
-                ], 404);
-            }
-            
-            // Obter permissões do role
-            // Isso depende de como você estruturou a relação entre roles e permissions
-            // Se usar tabela pivot role_permission:
-            // $permissions = $role->permissions()->pluck('chave')->toArray();
-            
-            // Por enquanto, retornar array vazio
-            $permissions = [];
             
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'permissions' => $permissions
-                ]
+                    'id' => $usuario->id,
+                    'ativo' => $usuario->ativo
+                ],
+                'message' => 'Status do usuário alterado com sucesso!'
             ]);
             
         } catch (\Exception $e) {
-            Log::error('❌ Erro ao buscar permissões do role: ' . $e->getMessage());
+            DB::rollBack();
+            Log::error('❌ Erro ao alterar status: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'error' => 'Erro ao buscar permissões do perfil: ' . $e->getMessage()
+                'error' => 'Erro ao alterar status: ' . $e->getMessage()
             ], 500);
         }
     }
 
-    // =============== ATUALIZAR PERMISSÕES DE UM ROLE ===============
-    public function updateRolePermissions(Request $request, $roleId)
+    /**
+     * Estatísticas de usuários
+     */
+    public function estatisticas()
     {
         try {
             $user = Auth::user();
             $tenantId = $this->getTenantId();
             
-            Log::info('📥 PUT /api/usuarios/roles/' . $roleId . '/permissions', [
-                'user_id' => $user->id,
-                'tenant_id' => $tenantId,
-                'dados' => $request->all()
-            ]);
-            
-            if (!$user->role) {
+            if (!$this->isAdmin($user)) {
                 return response()->json([
                     'success' => false,
-                    'error' => 'Usuário sem role definido'
+                    'error' => 'Apenas administradores podem ver estatísticas'
                 ], 403);
             }
             
-            // Apenas Super Admin ou Administrador pode atualizar permissões
-            $rolesPermitidos = ['Administrador', 'Admin', 'Super Admin'];
-            $userRole = strtolower($user->role->nome);
-            $rolesPermitidosLower = array_map('strtolower', $rolesPermitidos);
+            $totalUsuarios = User::where('tenant_id', $tenantId)->count();
+            $usuariosAtivos = User::where('tenant_id', $tenantId)->where('ativo', true)->count();
+            $usuariosInativos = User::where('tenant_id', $tenantId)->where('ativo', false)->count();
             
-            if (!in_array($userRole, $rolesPermitidosLower)) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Apenas administradores podem atualizar permissões'
-                ], 403);
-            }
+            $usuariosPorRole = User::where('tenant_id', $tenantId)
+                ->with('role')
+                ->get()
+                ->groupBy(function($user) {
+                    return $user->role ? $user->role->nome : 'Sem Perfil';
+                })
+                ->map(function($group) {
+                    return $group->count();
+                });
             
-            $role = Role::where('tenant_id', $tenantId)->find($roleId);
-            
-            if (!$role) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Perfil não encontrado'
-                ], 404);
-            }
-            
-            // Não permitir editar permissões de roles de super admin
-            if ($role->is_super_admin && !$user->isSuperAdmin()) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Não é possível editar permissões de perfis de super administrador'
-                ], 403);
-            }
-            
-            $validator = Validator::make($request->all(), [
-                'permissions' => 'required|array',
-                'permissions.*' => 'string|max:255',
-            ], [
-                'permissions.required' => 'As permissões são obrigatórias.',
-                'permissions.array' => 'As permissões devem ser um array.',
-            ]);
-            
-            if ($validator->fails()) {
-                Log::error('❌ Validação falhou', $validator->errors()->toArray());
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Erro de validação',
-                    'errors' => $validator->errors()
-                ], 422);
-            }
-            
-            // Aqui você atualizaria as permissões do role
-            // Dependendo da estrutura do seu banco
-            // Exemplo: $role->permissions()->sync($permissionIds);
-            
-            Log::info('✅ Permissões atualizadas', [
-                'role_id' => $role->id,
-                'permissions_count' => count($request->permissions),
-                'tenant' => $tenantId
-            ]);
+            $novosUsuariosMes = User::where('tenant_id', $tenantId)
+                ->whereMonth('created_at', now()->month)
+                ->whereYear('created_at', now()->year)
+                ->count();
             
             return response()->json([
                 'success' => true,
-                'message' => 'Permissões atualizadas com sucesso!'
+                'data' => [
+                    'totalUsuarios' => $totalUsuarios,
+                    'usuariosAtivos' => $usuariosAtivos,
+                    'usuariosInativos' => $usuariosInativos,
+                    'novosUsuariosMes' => $novosUsuariosMes,
+                    'usuariosPorRole' => $usuariosPorRole
+                ]
             ]);
             
         } catch (\Exception $e) {
-            Log::error('❌ Erro ao atualizar permissões do role: ' . $e->getMessage(), [
-                'trace' => $e->getTraceAsString()
-            ]);
+            Log::error('❌ Erro ao buscar estatísticas: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'error' => 'Erro ao atualizar permissões: ' . $e->getMessage()
+                'error' => 'Erro ao buscar estatísticas: ' . $e->getMessage()
             ], 500);
         }
     }

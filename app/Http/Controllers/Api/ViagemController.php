@@ -923,7 +923,7 @@ class ViagemController extends Controller
     }
 
     // ✅ CORREÇÃO CRÍTICA: Atualizar tracking/status da viagem
-    // APENAS ESTE MÉTODO tem validação dos 6 status específicos
+    // Aceita QUALQUER TEXTO no currentStatus (localização livre)
     public function atualizarTracking(Request $request, $id)
     {
         try {
@@ -945,16 +945,18 @@ class ViagemController extends Controller
                 ], 404);
             }
             
-            // ✅ APENAS AQUI: validação com APENAS OS 6 STATUS DO TRACKING
+            // ✅ VALIDAÇÃO CORRIGIDA: currentStatus aceita QUALQUER TEXTO
+            // status principal tem valores específicos
             $validator = Validator::make($request->all(), [
                 'status' => [
                     'nullable', 
                     'string', 
-                    'in:SCHEDULED,LOADED,IN TRANSIT,AT THE BORDER,DELIVERED,BREAKDOWN'
+                    'in:SCHEDULED,LOADED,IN TRANSIT,AT THE BORDER,DELIVERED,BREAKDOWN,POD RECEIVED,CLOSED,COMPLETED,PENDING,RUNNING,EMPTY'
                 ],
-                'currentStatus' => 'required|string|max:255',
+                'currentStatus' => 'required|string|max:255', // ✅ QUALQUER TEXTO PERMITIDO
                 'currentPosition' => 'nullable|string|max:255',
                 'trackingComments' => 'nullable|string',
+                'podDeliveryDate' => 'nullable|date',
             ]);
             
             if ($validator->fails()) {
@@ -967,12 +969,17 @@ class ViagemController extends Controller
             
             $dadosAtualizacao = [];
             
-            // Atualiza o status principal SE FOR ENVIADO
+            // ✅ Atualiza o status principal SE FOR ENVIADO
             if ($request->filled('status')) {
                 $dadosAtualizacao['status'] = $request->status;
+                
+                // Se for atualizado para POD RECEIVED e tiver data de POD, gravar também
+                if ($request->status === 'POD RECEIVED' && $request->filled('podDeliveryDate')) {
+                    $dadosAtualizacao['pod_delivery_date'] = $request->podDeliveryDate;
+                }
             }
             
-            // Sempre atualiza o current_status (tracking / localização)
+            // ✅ Sempre atualiza o current_status (aceita QUALQUER TEXTO - "Maputo", "Beira", etc.)
             $dadosAtualizacao['current_status'] = $request->currentStatus;
             
             // Posição atual (opcional)
@@ -1211,7 +1218,7 @@ class ViagemController extends Controller
         }
     }
 
-    // Fechar viagem - USA STATUS CLOSED
+    // ✅ CORREÇÃO: Fechar viagem - Fecha todas as legs com o mesmo trip_number
     public function fecharViagem(Request $request, $id)
     {
         try {
@@ -1235,11 +1242,15 @@ class ViagemController extends Controller
             
             $validator = Validator::make($request->all(), [
                 'invoiceNumber' => 'nullable|string|max:50',
-                'closingDate' => 'required|date',
+                'closingDate' => 'nullable|date',
+                'actualDeliveryDate' => 'nullable|date',
                 'closingComments' => 'nullable|string',
+                'status' => 'nullable|string|in:CLOSED',
+                'currentStatus' => 'nullable|string',
             ]);
             
             if ($validator->fails()) {
+                Log::error('❌ Validação falhou', $validator->errors()->toArray());
                 return response()->json([
                     'success' => false,
                     'error' => 'Erro de validação',
@@ -1247,37 +1258,321 @@ class ViagemController extends Controller
                 ], 422);
             }
             
-            $dadosAtualizacao = [
-                'status' => 'Closed', // ✅ Status CLOSED para fechamento
-                'is_ready_for_invoice' => true,
-                'invoice_number' => $request->invoiceNumber,
-                'actual_delivery' => $request->closingDate,
-            ];
-            
-            if ($request->closingComments) {
-                $dadosAtualizacao['tracking_comments'] = $viagem->tracking_comments . "\n--- FECHAMENTO ---\n" . $request->closingComments;
+            // Determinar a data de fechamento
+            $closingDate = null;
+            if ($request->filled('closingDate')) {
+                $closingDate = $request->closingDate;
+            } elseif ($request->filled('actualDeliveryDate')) {
+                $closingDate = $request->actualDeliveryDate;
+            } else {
+                $closingDate = Carbon::now()->toDateString();
             }
             
-            $viagem->update($dadosAtualizacao);
+            $dadosAtualizacao = [
+                'status' => 'CLOSED',
+                'is_ready_for_invoice' => true,
+                'actual_delivery' => $closingDate,
+            ];
             
-            Log::info('✅ Viagem fechada', [
-                'viagem_id' => $id,
+            if ($request->filled('invoiceNumber')) {
+                $dadosAtualizacao['invoice_number'] = $request->invoiceNumber;
+            }
+            
+            if ($request->filled('currentStatus')) {
+                $dadosAtualizacao['current_status'] = $request->currentStatus;
+            } else {
+                $dadosAtualizacao['current_status'] = 'COMPLETED';
+            }
+            
+            if ($request->filled('closingComments')) {
+                $current = $viagem->tracking_comments ?? '';
+                $dadosAtualizacao['tracking_comments'] = trim($current . "\n--- FECHAMENTO ---\n" . $request->closingComments);
+            }
+            
+            // ✅ NOVA FUNCIONALIDADE: Fechar TODAS as legs com o mesmo trip_number
+            $tripNumber = $viagem->trip_number;
+            
+            Log::info('🔒 Fechando todas as legs da viagem', [
+                'trip_number' => $tripNumber,
+                'tenant_id' => $tenantId
+            ]);
+            
+            // Buscar todas as legs (viagens) com o mesmo trip_number
+            $todasLegs = Viagem::where('tenant_id', $tenantId)
+                ->where('trip_number', $tripNumber)
+                ->get();
+            
+            Log::info('📊 Legs encontradas para fechar', [
+                'trip_number' => $tripNumber,
+                'total_legs' => $todasLegs->count(),
+                'legs_ids' => $todasLegs->pluck('id')->toArray()
+            ]);
+            
+            // Atualizar TODAS as legs
+            $legsAtualizadas = 0;
+            foreach ($todasLegs as $leg) {
+                try {
+                    // Para cada leg, preparar dados de fechamento
+                    $dadosLeg = [
+                        'status' => 'CLOSED',
+                        'is_ready_for_invoice' => true,
+                        'actual_delivery' => $closingDate,
+                    ];
+                    
+                    // Só adicionar invoice_number na última leg (a que está sendo fechada)
+                    if ($leg->id === $viagem->id && $request->filled('invoiceNumber')) {
+                        $dadosLeg['invoice_number'] = $request->invoiceNumber;
+                    }
+                    
+                    // Atualizar current_status
+                    if ($leg->id === $viagem->id && $request->filled('currentStatus')) {
+                        $dadosLeg['current_status'] = $request->currentStatus;
+                    } else {
+                        $dadosLeg['current_status'] = 'COMPLETED';
+                    }
+                    
+                    // Adicionar comentário de fechamento na leg atual
+                    if ($leg->id === $viagem->id && $request->filled('closingComments')) {
+                        $current = $leg->tracking_comments ?? '';
+                        $dadosLeg['tracking_comments'] = trim($current . "\n--- FECHAMENTO ---\n" . $request->closingComments);
+                    } elseif ($leg->id !== $viagem->id) {
+                        // Para as outras legs, apenas marcar como fechadas em cascata
+                        $current = $leg->tracking_comments ?? '';
+                        $dadosLeg['tracking_comments'] = trim($current . "\n--- FECHADO EM CASCATA (leg final fechada) ---");
+                    }
+                    
+                    $leg->update($dadosLeg);
+                    $legsAtualizadas++;
+                    
+                    Log::info('✅ Leg fechada', [
+                        'leg_id' => $leg->id,
+                        'trip_number' => $leg->trip_number,
+                        'trip_slno' => $leg->trip_slno
+                    ]);
+                    
+                } catch (\Exception $e) {
+                    Log::error('❌ Erro ao fechar leg individual', [
+                        'leg_id' => $leg->id,
+                        'erro' => $e->getMessage()
+                    ]);
+                }
+            }
+            
+            Log::info('✅ Viagem completa fechada', [
+                'trip_number' => $tripNumber,
+                'legs_atualizadas' => $legsAtualizadas,
                 'invoice_number' => $request->invoiceNumber,
+                'closing_date' => $closingDate,
+                'tenant_id' => $tenantId
+            ]);
+            
+            // Retornar a leg atual atualizada
+            return response()->json([
+                'success' => true,
+                'data' => $this->paraCamelCase($viagem->fresh()),
+                'message' => "Viagem {$tripNumber} fechada com sucesso! {$legsAtualizadas} leg(s) fechada(s).",
+                'legs_fechadas' => $legsAtualizadas
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('❌ Erro ao fechar viagem: ' . $e->getMessage());
+            Log::error('🔧 Trace: ' . $e->getTraceAsString());
+            return response()->json([
+                'success' => false,
+                'error' => 'Erro interno: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Adicionar nova leg à viagem existente - VERSÃO SIMPLIFICADA
+     * Apenas cria nova leg sem alterar a leg anterior
+     */
+    public function adicionarLeg(Request $request, $id)
+    {
+        try {
+            $tenantId = $this->getTenantId();
+            
+            Log::info('📥 POST /api/viagens/' . $id . '/nova-leg', [
+                'user_id' => Auth::id(),
+                'tenant_id' => $tenantId,
+                'dados' => $request->all()
+            ]);
+            
+            $viagem = Viagem::where('tenant_id', $tenantId)
+                ->find($id);
+            
+            if (!$viagem) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Viagem não encontrada'
+                ], 404);
+            }
+            
+            $validator = Validator::make($request->all(), [
+                'destination' => 'required|string|max:100',
+                'orderId' => 'nullable|integer|exists:ordens,id',
+                'orderNumber' => 'nullable|string|max:50',
+                'containerNo' => 'nullable|string|max:50',
+                'blNumber' => 'nullable|string|max:50',
+                'commodity' => 'nullable|string|max:100',
+                'weight' => 'nullable|numeric|min:0',
+                'driver' => 'required|string|max:255',
+                'reason' => 'nullable|string|max:500',
+                'comments' => 'nullable|string',
+                'distanciaId' => 'nullable|integer|exists:distancias,id',
+                'distanciaTotal' => 'nullable|string|max:50',
+                'tempoEstimado' => 'nullable|string|max:50',
+                'isEmptyTrip' => 'required|boolean',
+                'customerName' => 'nullable|string|max:255',
+                'containerId' => 'nullable|integer',
+                'coLoadContainer' => 'nullable|string|max:50',
+                'coLoadContainerId' => 'nullable|integer',
+                'pesoTotal' => 'nullable|string|max:50',
+                'weightUnit' => 'nullable|string|in:kg,t',
+                'tipoCarga' => 'nullable|string|in:Container,Break Bulk,General Cargo,Empty',
+                'isCoLoad' => 'nullable|boolean',
+            ]);
+            
+            if ($validator->fails()) {
+                Log::error('❌ Validação falhou', $validator->errors()->toArray());
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Erro de validação',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+            
+            // Verificar se motorista está disponível (se for motorista diferente)
+            if ($request->driver !== $viagem->driver) {
+                $motoristaAtivo = Viagem::where('driver', $request->driver)
+                    ->where('tenant_id', $tenantId)
+                    ->where('status', '!=', 'Closed')
+                    ->exists();
+                    
+                if ($motoristaAtivo) {
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'Novo motorista já está em uma viagem ativa'
+                    ], 409);
+                }
+            }
+            
+            // Criar nova leg mantendo o MESMO trip_number
+            // Apenas incrementar o trip_slno
+            $tripSlno = (int) $viagem->trip_slno + 1;
+            
+            // Preparar dados para a nova leg - MESMO trip_number
+            $dadosNovaLeg = [
+                'trip_number' => $viagem->trip_number, // **MESMO NÚMERO DE VIAGEM**
+                'trip_slno' => (string) $tripSlno,     // **INCREMENTA APENAS O SLNO**
+                'truck_number' => $viagem->truck_number,
+                'trailer_number' => $viagem->trailer_number,
+                'driver' => $request->driver,
+                'schedule_date' => Carbon::now(),
+                'from_station' => $viagem->to_station, // Origem é o destino da leg anterior
+                'to_station' => $request->destination,
+                'is_empty_trip' => $request->isEmptyTrip,
+                'is_company_owned' => $viagem->is_company_owned,
+                'created_by' => Auth::user()->name ?? 'System',
+                'tenant_id' => $tenantId,
+                'parent_trip_id' => $viagem->id,
+                'distancia_id' => $request->distanciaId,
+                'status' => 'PENDING',
+                'current_status' => 'SCHEDULED',
+            ];
+            
+            // Dados específicos para viagens com carga
+            if (!$request->isEmptyTrip) {
+                $dadosNovaLeg['customer_name'] = $request->customerName ?? $viagem->customer_name ?? 'Cliente não especificado';
+                $dadosNovaLeg['cargo_type'] = $request->tipoCarga ?? $viagem->cargo_type ?? 'Container';
+                $dadosNovaLeg['order_number'] = $request->orderNumber ?? null;
+                $dadosNovaLeg['container_no'] = $request->containerNo;
+                $dadosNovaLeg['bl_number'] = $request->blNumber;
+                $dadosNovaLeg['commodity'] = $request->commodity ?? $viagem->commodity ?? 'Commodity não especificada';
+                $dadosNovaLeg['weight'] = $request->weight;
+            } else {
+                // Dados para viagens vazias
+                $dadosNovaLeg['customer_name'] = 'Repositioning';
+                $dadosNovaLeg['cargo_type'] = 'Empty';
+                $dadosNovaLeg['commodity'] = 'Empty Trip';
+                
+                // Adicionar motivo nos comentários
+                $comentarios = "Viagem vazia (repositioning)";
+                if ($request->reason) {
+                    $comentarios .= "\nRazão: " . $request->reason;
+                }
+                if ($request->comments) {
+                    $comentarios .= "\n" . $request->comments;
+                }
+                $dadosNovaLeg['tracking_comments'] = $comentarios;
+            }
+            
+            Log::info('💾 Criando nova leg (mesmo trip_number)', [
+                'trip_number' => $viagem->trip_number,
+                'trip_slno_atual' => $viagem->trip_slno,
+                'trip_slno_novo' => $tripSlno,
+                'tenant_id' => $tenantId
+            ]);
+            
+            $novaLeg = Viagem::create($dadosNovaLeg);
+            
+            // **REMOVIDO**: Não altera a leg anterior de forma alguma
+            // A leg anterior mantém seu status original
+            
+            // Se for container, marcar como usado se tiver containerId
+            if ($request->containerId && !$request->isEmptyTrip) {
+                $this->marcarContainerComoUsado($request->containerId);
+            }
+            
+            // Se for co-load, marcar segundo container
+            if ($request->coLoadContainerId && $request->isCoLoad) {
+                $this->marcarContainerComoUsado($request->coLoadContainerId);
+            }
+            
+            Log::info('✅ Nova leg criada com sucesso', [
+                'trip_number' => $viagem->trip_number,
+                'leg_anterior_slno' => $viagem->trip_slno,
+                'nova_leg_slno' => $tripSlno,
+                'origem' => $viagem->to_station,
+                'destino' => $request->destination,
                 'tenant_id' => $tenantId
             ]);
             
             return response()->json([
                 'success' => true,
-                'data' => $this->paraCamelCase($viagem->fresh()),
-                'message' => 'Viagem fechada com sucesso!'
-            ]);
+                'data' => $this->paraCamelCase($novaLeg),
+                'message' => 'Nova leg ' . $tripSlno . ' adicionada à viagem ' . $viagem->trip_number . '!'
+            ], 201);
             
         } catch (\Exception $e) {
-            Log::error('❌ Erro ao fechar viagem: ' . $e->getMessage());
+            Log::error('❌ Erro ao adicionar leg: ' . $e->getMessage());
+            Log::error('🔧 Trace: ' . $e->getTraceAsString());
+            
             return response()->json([
                 'success' => false,
                 'error' => 'Erro interno: ' . $e->getMessage()
             ], 500);
+        }
+    }
+    
+    /**
+     * Método auxiliar para marcar container como usado
+     */
+    private function marcarContainerComoUsado($containerId)
+    {
+        try {
+            $container = \App\Models\Container::find($containerId);
+            if ($container) {
+                $container->update([
+                    'status' => 'USED',
+                    'is_available' => false,
+                    'used_at' => Carbon::now()
+                ]);
+                Log::info('📦 Container marcado como usado', ['container_id' => $containerId]);
+            }
+        } catch (\Exception $e) {
+            Log::error('❌ Erro ao marcar container como usado: ' . $e->getMessage());
         }
     }
 }

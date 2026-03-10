@@ -1,5 +1,5 @@
 <?php
-// app/Http/Controllers/Api/ClienteController.php - CORREÇÃO COMPLETA
+// app/Http/Controllers/Api/ClienteController.php
 
 namespace App\Http\Controllers\Api;
 
@@ -17,8 +17,10 @@ class ClienteController extends Controller
         $this->middleware('auth:sanctum');
     }
 
-    // Função auxiliar para converter snake_case para camelCase
-    private function paraCamelCase($cliente)
+    /**
+     * Formata o modelo para o padrão CamelCase esperado pelo Frontend.
+     */
+    private function formatarParaFrontend($cliente)
     {
         return [
             'id' => $cliente->id,
@@ -33,27 +35,25 @@ class ClienteController extends Controller
             'pais' => $cliente->pais,
             'observacoes' => $cliente->observacoes,
             'criadoPor' => $cliente->criado_por,
-            'tenantId' => $cliente->tenant_id, // Adicionado para debug
             'createdAt' => $cliente->created_at->toISOString(),
             'updatedAt' => $cliente->updated_at->toISOString()
         ];
     }
 
+    /**
+     * Lista clientes com paginação e filtros.
+     * O filtro por tipo é feito no banco de dados para garantir performance e paginação corretas.
+     */
     public function index(Request $request)
     {
         $user = Auth::user();
         $tenantId = $user->tenant_id ?? 'default';
         
-        Log::info('📥 GET /api/clientes', [
-            'user_id' => $user->id,
-            'tenant_id' => $tenantId,
-            'query' => $request->all()
-        ]);
-        
         try {
             $query = Cliente::where('tenant_id', $tenantId);
             
-            if ($request->has('search') && $request->search) {
+            // Filtro de busca textual
+            if ($request->filled('search')) {
                 $search = $request->search;
                 $query->where(function ($q) use ($search) {
                     $q->where('nome_empresa', 'like', "%{$search}%")
@@ -63,25 +63,18 @@ class ClienteController extends Controller
                       ->orWhere('telefone', 'like', "%{$search}%");
                 });
             }
+
+            // Filtro por tipo de cliente (otimizado no DB)
+            if ($request->filled('tipo') && $request->tipo !== 'todos') {
+                $query->where('tipo_cliente', $request->tipo);
+            }
             
             $perPage = $request->get('limit', 10);
-            $page = $request->get('page', 1);
-            
-            $clientes = $query->orderBy('created_at', 'desc')->paginate($perPage, ['*'], 'page', $page);
-            
-            // Converter todos os itens para camelCase
-            $clientesCamelCase = $clientes->map(function ($cliente) {
-                return $this->paraCamelCase($cliente);
-            });
-            
-            Log::info('✅ Clientes listados', [
-                'total' => $clientes->total(),
-                'tenant_id' => $tenantId
-            ]);
+            $clientes = $query->orderBy('created_at', 'desc')->paginate($perPage);
             
             return response()->json([
                 'success' => true,
-                'data' => $clientesCamelCase->toArray(),
+                'data' => $clientes->map(fn($c) => $this->formatarParaFrontend($c)),
                 'pagination' => [
                     'page' => $clientes->currentPage(),
                     'limit' => $perPage,
@@ -93,11 +86,8 @@ class ClienteController extends Controller
             ]);
             
         } catch (\Exception $e) {
-            Log::error('❌ Erro ao listar clientes: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'error' => 'Erro interno: ' . $e->getMessage()
-            ], 500);
+            Log::error('Erro ao listar clientes: ' . $e->getMessage());
+            return response()->json(['success' => false, 'error' => 'Erro interno no servidor'], 500);
         }
     }
 
@@ -106,34 +96,22 @@ class ClienteController extends Controller
         $user = Auth::user();
         $tenantId = $user->tenant_id ?? 'default';
         
-        Log::info('📥 POST /api/clientes', [
-            'user_id' => $user->id,
-            'tenant_id' => $tenantId,
-            'dados' => $request->all()
-        ]);
-        
         $validator = Validator::make($request->all(), [
             'nomeEmpresa' => 'required|string|max:255',
             'tipoCliente' => 'required|in:Consignee,Shipper,Invoice Party',
             'nuitNif' => 'required|string|size:9|unique:clientes,nuit_nif,NULL,id,tenant_id,' . $tenantId,
             'email' => 'nullable|email|unique:clientes,email,NULL,id,tenant_id,' . $tenantId,
         ], [
-            'nuitNif.unique' => 'Já existe um cliente com este NUIT/NIF',
-            'nuitNif.size' => 'NUIT/NIF deve ter exatamente 9 dígitos',
-            'email.unique' => 'Já existe um cliente com este email',
+            'nuitNif.unique' => 'Já existe um cliente com este NUIT/NIF.',
+            'nuitNif.size' => 'NUIT/NIF deve ter exatamente 9 dígitos.',
         ]);
         
         if ($validator->fails()) {
-            Log::error('❌ Validação falhou', $validator->errors()->toArray());
-            return response()->json([
-                'success' => false,
-                'error' => 'Erro de validação',
-                'errors' => $validator->errors()
-            ], 422);
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
         }
         
         try {
-            $dados = [
+            $cliente = Cliente::create([
                 'nome_empresa' => $request->nomeEmpresa,
                 'tipo_cliente' => $request->tipoCliente,
                 'pessoa_contato' => $request->pessoaContato ?? '',
@@ -146,58 +124,17 @@ class ClienteController extends Controller
                 'observacoes' => $request->observacoes ?? '',
                 'criado_por' => $user->name ?? 'Sistema',
                 'tenant_id' => $tenantId,
-            ];
-            
-            Log::info('💾 Salvando cliente', $dados);
-            
-            $cliente = Cliente::create($dados);
-            
-            Log::info('✅ Cliente criado', [
-                'id' => $cliente->id,
-                'tenant_id' => $tenantId
             ]);
             
             return response()->json([
                 'success' => true,
-                'data' => $this->paraCamelCase($cliente),
+                'data' => $this->formatarParaFrontend($cliente),
                 'message' => 'Cliente criado com sucesso!'
             ], 201);
             
         } catch (\Exception $e) {
-            Log::error('❌ Erro ao criar cliente: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'error' => 'Erro interno: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    public function show($id)
-    {
-        $user = Auth::user();
-        $tenantId = $user->tenant_id ?? 'default';
-        
-        try {
-            $cliente = Cliente::where('tenant_id', $tenantId)->find($id);
-            
-            if (!$cliente) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Cliente não encontrado'
-                ], 404);
-            }
-            
-            return response()->json([
-                'success' => true,
-                'data' => $this->paraCamelCase($cliente)
-            ]);
-            
-        } catch (\Exception $e) {
-            Log::error('❌ Erro ao buscar cliente: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'error' => 'Erro interno: ' . $e->getMessage()
-            ], 500);
+            Log::error('Erro ao criar cliente: ' . $e->getMessage());
+            return response()->json(['success' => false, 'error' => 'Erro ao processar solicitação'], 500);
         }
     }
 
@@ -206,67 +143,40 @@ class ClienteController extends Controller
         $user = Auth::user();
         $tenantId = $user->tenant_id ?? 'default';
         
-        Log::info('📥 PUT /api/clientes/' . $id, [
-            'user_id' => $user->id,
-            'tenant_id' => $tenantId,
-            'dados' => $request->all()
+        $cliente = Cliente::where('tenant_id', $tenantId)->find($id);
+        if (!$cliente) {
+            return response()->json(['success' => false, 'error' => 'Cliente não encontrado'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'nomeEmpresa' => 'required|string|max:255',
+            'tipoCliente' => 'required|in:Consignee,Shipper,Invoice Party',
+            'nuitNif' => 'required|string|size:9|unique:clientes,nuit_nif,' . $id . ',id,tenant_id,' . $tenantId,
+            'email' => 'nullable|email|unique:clientes,email,' . $id . ',id,tenant_id,' . $tenantId,
         ]);
         
-        try {
-            $cliente = Cliente::where('tenant_id', $tenantId)->find($id);
-            
-            if (!$cliente) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Cliente não encontrado'
-                ], 404);
-            }
-            
-            $validator = Validator::make($request->all(), [
-                'nomeEmpresa' => 'required|string|max:255',
-                'tipoCliente' => 'required|in:Consignee,Shipper,Invoice Party',
-                'nuitNif' => 'required|string|size:9|unique:clientes,nuit_nif,' . $id . ',id,tenant_id,' . $tenantId,
-                'email' => 'nullable|email|unique:clientes,email,' . $id . ',id,tenant_id,' . $tenantId,
-            ], [
-                'nuitNif.unique' => 'Já existe um cliente com este NUIT/NIF',
-                'nuitNif.size' => 'NUIT/NIF deve ter exatamente 9 dígitos',
-                'email.unique' => 'Já existe um cliente com este email',
-            ]);
-            
-            if ($validator->fails()) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Erro de validação',
-                    'errors' => $validator->errors()
-                ], 422);
-            }
-            
-            $cliente->update([
-                'nome_empresa' => $request->nomeEmpresa,
-                'tipo_cliente' => $request->tipoCliente,
-                'pessoa_contato' => $request->pessoaContato ?? $cliente->pessoa_contato,
-                'telefone' => $request->telefone ?? $cliente->telefone,
-                'email' => $request->email ?? $cliente->email,
-                'endereco' => $request->endereco ?? $cliente->endereco,
-                'nuit_nif' => $request->nuitNif,
-                'iva' => $request->iva ?? $cliente->iva,
-                'pais' => $request->pais ?? $cliente->pais,
-                'observacoes' => $request->observacoes ?? $cliente->observacoes,
-            ]);
-            
-            return response()->json([
-                'success' => true,
-                'data' => $this->paraCamelCase($cliente->fresh()),
-                'message' => 'Cliente atualizado com sucesso!'
-            ]);
-            
-        } catch (\Exception $e) {
-            Log::error('❌ Erro ao atualizar cliente: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'error' => 'Erro interno: ' . $e->getMessage()
-            ], 500);
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
         }
+        
+        $cliente->update([
+            'nome_empresa' => $request->nomeEmpresa,
+            'tipo_cliente' => $request->tipoCliente,
+            'pessoa_contato' => $request->pessoaContato,
+            'telefone' => $request->telefone,
+            'email' => $request->email,
+            'endereco' => $request->endereco,
+            'nuit_nif' => $request->nuitNif,
+            'iva' => $request->iva,
+            'pais' => $request->pais,
+            'observacoes' => $request->observacoes,
+        ]);
+        
+        return response()->json([
+            'success' => true,
+            'data' => $this->formatarParaFrontend($cliente->fresh()),
+            'message' => 'Cliente atualizado com sucesso!'
+        ]);
     }
 
     public function destroy($id)
@@ -274,35 +184,12 @@ class ClienteController extends Controller
         $user = Auth::user();
         $tenantId = $user->tenant_id ?? 'default';
         
-        try {
-            $cliente = Cliente::where('tenant_id', $tenantId)->find($id);
-            
-            if (!$cliente) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Cliente não encontrado'
-                ], 404);
-            }
-            
-            $cliente->delete();
-            
-            Log::info('✅ Cliente excluído', [
-                'id' => $id,
-                'user_id' => $user->id,
-                'tenant_id' => $tenantId
-            ]);
-            
-            return response()->json([
-                'success' => true,
-                'message' => 'Cliente excluído com sucesso!'
-            ]);
-            
-        } catch (\Exception $e) {
-            Log::error('❌ Erro ao excluir cliente: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'error' => 'Erro interno: ' . $e->getMessage()
-            ], 500);
+        $cliente = Cliente::where('tenant_id', $tenantId)->find($id);
+        if (!$cliente) {
+            return response()->json(['success' => false, 'error' => 'Cliente não encontrado'], 404);
         }
+        
+        $cliente->delete();
+        return response()->json(['success' => true, 'message' => 'Cliente excluído com sucesso!']);
     }
 }

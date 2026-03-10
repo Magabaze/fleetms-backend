@@ -1,4 +1,5 @@
 <?php
+// app/Models/User.php
 
 namespace App\Models;
 
@@ -23,10 +24,12 @@ class User extends Authenticatable
         'endereco',
         'bio',
         'role_id',
+        'user_type', // ADICIONAR ESTA LINHA: transportador, agent, shipper
         'idioma',
         'fuso_horario',
         'tenant_id',
-        'ativo'
+        'ativo',
+        'email_verified_at',
     ];
 
     protected $hidden = [

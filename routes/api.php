@@ -1,90 +1,201 @@
 <?php
+// routes/api.php
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\CadastroController;
+use App\Http\Controllers\Api\FileUploadController;
 use App\Http\Controllers\Api\PrintController;
 use App\Http\Controllers\Api\DriverExpenseController;
+use App\Http\Controllers\Api\PublicTrackingController;
+use App\Http\Controllers\Api\OrdemDisponibilidadeController;
+use App\Http\Controllers\Api\DespesasPrintController;
+use App\Http\Controllers\Api\RelatorioExportController;
+use App\Http\Controllers\Api\FaturacaoPrintController;
+use App\Http\Controllers\Api\CombustivelPrintController;
+use App\Http\Controllers\Api\UserManagementController;
+use App\Http\Controllers\Api\BonusPrintController;
 
 // ============================================
-// ROTAS PÚBLICAS
+// ROTAS PÚBLICAS (SEM AUTENTICAÇÃO)
 // ============================================
 Route::get('/health', [AuthController::class, 'health']);
 Route::post('/auth/register', [AuthController::class, 'register']);
 Route::post('/auth/login', [AuthController::class, 'login']);
+Route::post('/auth/register-empresa', [CadastroController::class, 'register']);
+Route::get('/public/tracking/{code}', [PublicTrackingController::class, 'trackByCode'])->where('code', '.*');
 
 // ============================================
-// ✅ ROTA DE PRINT FORA DO MIDDLEWARE
+// ROTAS DE IMPRESSÃO (COM TOKEN NA URL) - FORA DO GRUPO DE AUTENTICAÇÃO
 // ============================================
+
+// Viagens
 Route::get('/viagens/{id}/print', [PrintController::class, 'generateManifest']);
+Route::get('/viagens/{viagemId}/print-despesas', [DespesasPrintController::class, 'printDespesas']);
+
+// Faturação
+Route::prefix('faturacao/print')->group(function () {
+    Route::get('/nota/{id}', [FaturacaoPrintController::class, 'printNota']);
+    Route::get('/ordem/{id}', [FaturacaoPrintController::class, 'printOrdem']);
+});
+
+// Combustível
+Route::prefix('combustivel/print')->group(function () {
+    Route::get('/abastecimento-externo/{id}', [CombustivelPrintController::class, 'printAbastecimentoExterno']);
+    Route::get('/abastecimento-interno/{id}', [CombustivelPrintController::class, 'printAbastecimentoInterno']);
+    Route::get('/pedido-compra/{id}', [CombustivelPrintController::class, 'printPedidoCompra']);
+});
+
+// Manutenção
+Route::prefix('manutencao/print')->group(function () {
+    Route::get('/ordem-trabalho/{id}', [App\Http\Controllers\Api\Manutencao\ManutencaoPrintController::class, 'printOrdemTrabalho']);
+    Route::get('/avaria/{id}', [App\Http\Controllers\Api\Manutencao\ManutencaoPrintController::class, 'printAvaria']);
+    Route::get('/plano-preventivo/{id}', [App\Http\Controllers\Api\Manutencao\ManutencaoPrintController::class, 'printPlanoPreventivo']);
+});
+
+// Bónus e Pagamentos
+Route::prefix('bonus/print')->group(function () {
+    Route::get('/pagamento/{id}', [BonusPrintController::class, 'printPagamento']);
+    Route::get('/extrato', [BonusPrintController::class, 'printExtrato']);
+});
+
+// Caixa / Justificativos
+Route::prefix('caixa/print')->group(function () {
+    Route::get('/justificativo/{viagemId}', [App\Http\Controllers\Api\CaixaPrintController::class, 'printJustificativo']);
+    Route::get('/resumo-despesas/{viagemId}', [App\Http\Controllers\Api\CaixaPrintController::class, 'printResumoDespesas']);
+});
 
 // ============================================
-// ROTAS PROTEGIDAS
+// ROTAS PROTEGIDAS (COM AUTENTICAÇÃO SANCTUM)
 // ============================================
 Route::middleware('auth:sanctum')->group(function () {
-    
-    // Autenticação do usuário
+
     Route::get('/auth/user', [AuthController::class, 'user']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);
-    
+
     // ============================================
-    // ✅ DRIVER EXPENSES (DESPESAS DE MOTORISTAS)
+    // MÓDULO DE USUÁRIOS
+    // ============================================
+    Route::prefix('usuarios')->group(function () {
+        
+        // Rotas ESPECÍFICAS (sem parâmetros)
+        Route::get('/meu-perfil', [UserManagementController::class, 'meuPerfil']);
+        Route::put('/meu-perfil', [UserManagementController::class, 'atualizarMeuPerfil']);
+        Route::put('/minha-senha', [UserManagementController::class, 'atualizarMinhaSenha']);
+        Route::get('/minhas-permissoes', [UserManagementController::class, 'minhasPermissoes']);
+        Route::get('/estatisticas', [UserManagementController::class, 'estatisticas']);
+        
+        // Rotas de roles
+        Route::prefix('roles')->group(function () {
+            Route::get('/', [UserManagementController::class, 'getRoles']);
+            Route::post('/', [UserManagementController::class, 'storeRole']);
+            Route::get('/{roleId}/permissoes', [UserManagementController::class, 'getRolePermissions']);
+            Route::put('/{roleId}/permissoes', [UserManagementController::class, 'updateRolePermissions']);
+            Route::put('/{id}', [UserManagementController::class, 'updateRole']);
+            Route::delete('/{id}', [UserManagementController::class, 'destroyRole']);
+        });
+        
+        // Rotas de permissões
+        Route::get('/permissoes', [UserManagementController::class, 'getPermissions']);
+        
+        // Rotas com parâmetros
+        Route::get('/{id}', [UserManagementController::class, 'show']);
+        Route::put('/{id}', [UserManagementController::class, 'update']);
+        Route::delete('/{id}', [UserManagementController::class, 'destroy']);
+        Route::patch('/{id}/toggle-status', [UserManagementController::class, 'toggleStatus']);
+        
+        // Listagem e criação
+        Route::get('/', [UserManagementController::class, 'index']);
+        Route::post('/', [UserManagementController::class, 'store']);
+    });
+
+    // ============================================
+    // BÓNUS (inclui regras, bónus, descontos, carteiras) - SEM ROTAS DE PRINT
+    // ============================================
+    Route::prefix('bonus')->group(function () {
+        require __DIR__ . '/bonus/bonus.php';
+    });
+
+    // ============================================
+    // UPLOAD
+    // ============================================
+    Route::prefix('upload')->group(function () {
+        Route::post('/logo', [FileUploadController::class, 'uploadLogo']);
+        Route::post('/motorista-foto', [FileUploadController::class, 'uploadMotoristaFoto']);
+        Route::post('/documento', [FileUploadController::class, 'uploadDocumento']);
+        Route::delete('/arquivo', [FileUploadController::class, 'deleteFile']);
+    });
+
+    // ============================================
+    // DESPESAS DE MOTORISTAS
     // ============================================
     Route::prefix('driver-expenses')->group(function () {
-        // Test endpoint
         Route::get('/test', [DriverExpenseController::class, 'test']);
-        
-        // Tipos de despesa
         Route::get('/tipos-despesa', [DriverExpenseController::class, 'tiposDespesa']);
         Route::post('/tipos-despesa', [DriverExpenseController::class, 'criarTipoDespesa']);
-        
-        // Operações em lote
         Route::post('/aprovar-lote', [DriverExpenseController::class, 'aprovarLote']);
         Route::post('/cancelar-lote', [DriverExpenseController::class, 'cancelarLote']);
-        
-        // Busca por período
         Route::post('/por-periodo', [DriverExpenseController::class, 'buscarPorPeriodo']);
-        
-        // Exportar PDF
         Route::get('/exportar-pdf/{viagemId}', [DriverExpenseController::class, 'exportarPdf']);
-        
-        // Buscar despesa específica
         Route::get('/{id}', [DriverExpenseController::class, 'buscarPorId']);
     });
 
     // ============================================
-    // ✅ DESPESAS POR VIAGEM (Compatível com frontend)
+    // VIAGENS
     // ============================================
     Route::prefix('viagens')->group(function () {
+        Route::get('/recursos', [App\Http\Controllers\Api\ViagemController::class, 'recursos']);
+        Route::get('/para-faturar', [App\Http\Controllers\Api\ViagemFaturacaoController::class, 'paraFaturar']);
+        Route::get('/motorista/{motorista}/status', [App\Http\Controllers\Api\ViagemController::class, 'verificarStatusMotorista']);
+        Route::get('/camiao/{matricula}/status', [App\Http\Controllers\Api\ViagemController::class, 'verificarStatusCamiao']);
+        Route::get('/trela/{matricula}/status', [App\Http\Controllers\Api\ViagemController::class, 'verificarStatusTrela']);
+        Route::get('/', [App\Http\Controllers\Api\ViagemController::class, 'index']);
+        Route::post('/', [App\Http\Controllers\Api\ViagemController::class, 'store']);
+        
+        Route::prefix('{viagem}')->group(function () {
+            Route::get('/', [App\Http\Controllers\Api\ViagemController::class, 'show']);
+            Route::put('/', [App\Http\Controllers\Api\ViagemController::class, 'update']);
+            Route::delete('/', [App\Http\Controllers\Api\ViagemController::class, 'destroy']);
+            Route::patch('/tracking', [App\Http\Controllers\Api\ViagemController::class, 'atualizarTracking']);
+            Route::put('/fechar', [App\Http\Controllers\Api\ViagemController::class, 'fecharViagem']);
+            Route::post('/nova-leg', [App\Http\Controllers\Api\ViagemController::class, 'adicionarLeg']);
+            Route::put('/alterar-destino', [App\Http\Controllers\Api\ViagemController::class, 'alterarDestino']);
+            Route::put('/alterar-ordem', [App\Http\Controllers\Api\ViagemController::class, 'alterarOrdem']);
+            Route::put('/desfazer', [App\Http\Controllers\Api\ViagemController::class, 'desfazerViagem']);
+            Route::put('/km-extra', [App\Http\Controllers\Api\ViagemController::class, 'adicionarKMExtra']);
+        });
+
         Route::prefix('{viagemId}/despesas')->group(function () {
-            // Listar despesas da viagem
             Route::get('/', [DriverExpenseController::class, 'buscarPorViagem']);
-            
-            // Criar nova despesa
             Route::post('/', [DriverExpenseController::class, 'criarParaViagem']);
-            
-            // Aprovar todas as despesas da viagem
             Route::post('/aprovar-todas', [DriverExpenseController::class, 'aprovarTodas']);
-            
-            // Operações em despesa específica
             Route::prefix('{id}')->group(function () {
-                // Atualizar despesa
                 Route::put('/', [DriverExpenseController::class, 'atualizar']);
-                
-                // Deletar despesa
                 Route::delete('/', [DriverExpenseController::class, 'deletar']);
             });
         });
     });
 
     // ============================================
-    // ✅ ROTAS COMPATÍVEIS (para manter compatibilidade)
+    // DISPONIBILIDADE DE ORDENS
+    // ============================================
+    Route::prefix('ordens')->group(function () {
+        Route::get('/{id}/containers-disponiveis', [OrdemDisponibilidadeController::class, 'getContainersDisponiveis']);
+        Route::post('/containers/{containerId}/marcar-usado', [OrdemDisponibilidadeController::class, 'marcarContainerComoUsado']);
+        Route::get('/containers/{containerId}/status', [OrdemDisponibilidadeController::class, 'getContainerStatus']);
+        Route::get('/{id}/break-bulk-disponivel', [OrdemDisponibilidadeController::class, 'getBreakBulkDisponivel']);
+        Route::post('/break-bulk/{breakBulkId}/consumir-viagem', [OrdemDisponibilidadeController::class, 'consumirBreakBulkParaViagem']);
+        Route::get('/break-bulk/{breakBulkId}/status', [OrdemDisponibilidadeController::class, 'getBreakBulkStatus']);
+        Route::get('/{id}/check-viabilidade', [OrdemDisponibilidadeController::class, 'checkViabilidade']);
+    });
+
+    // ============================================
+    // ROTAS LEGADAS (despesas-motoristas)
     // ============================================
     Route::prefix('despesas-motoristas')->group(function () {
         Route::post('/aprovar-lote', [DriverExpenseController::class, 'aprovarLote']);
         Route::post('/cancelar-lote', [DriverExpenseController::class, 'cancelarLote']);
         Route::post('/por-periodo', [DriverExpenseController::class, 'buscarPorPeriodo']);
-        
-        // ✅ ADICIONADO: Rotas para despesas pré-cadastradas por rota
         Route::get('/', [App\Http\Controllers\Api\DespesaMotoristaController::class, 'index']);
         Route::get('/distancias-disponiveis', [App\Http\Controllers\Api\DespesaMotoristaController::class, 'distanciasDisponiveis']);
         Route::get('/tipos', [App\Http\Controllers\Api\DespesaMotoristaController::class, 'tiposDespesa']);
@@ -96,131 +207,120 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // ============================================
-    // OUTRAS ROTAS POR MÓDULO
+    // MANUTENÇÃO
     // ============================================
-    
-    // ✅ Configurações
-    if (file_exists(__DIR__ . '/configuracoes/configuracoes.php')) {
-        require __DIR__ . '/configuracoes/configuracoes.php';
-    }
-    
-    // ✅ Gerenciamento de usuários
-    if (file_exists(__DIR__ . '/usuarios/usuarios.php')) {
-        require __DIR__ . '/usuarios/usuarios.php';
-    }
-    
-    // ✅ Clientes
-    if (file_exists(__DIR__ . '/clientes/clientes.php')) {
-        require __DIR__ . '/clientes/clientes.php';
-    }
-    
-    // ✅ Agentes
-    if (file_exists(__DIR__ . '/agentes/agentes.php')) {
-        require __DIR__ . '/agentes/agentes.php';
-    }
-    
-    // ✅ Cargas
-    if (file_exists(__DIR__ . '/cargas/cargas.php')) {
-        require __DIR__ . '/cargas/cargas.php';
-    }
-    
-    // ✅ Distâncias
-    if (file_exists(__DIR__ . '/distancias/distancias.php')) {
-        require __DIR__ . '/distancias/distancias.php';
-    }
-    
-    // ✅ Rates
-    if (file_exists(__DIR__ . '/rates/rates.php')) {
-        require __DIR__ . '/rates/rates.php';
-    }
-    
-    // ✅ Ordens
-    if (file_exists(__DIR__ . '/ordens/ordens.php')) {
-        require __DIR__ . '/ordens/ordens.php';
-    }
-    
-    // ✅ Despesas Motoristas (se houver arquivo separado)
-    if (file_exists(__DIR__ . '/despesas/despesas.php')) {
-        require __DIR__ . '/despesas/despesas.php';
-    }
-    
-    // ✅ Tipos de Despesa
-    if (file_exists(__DIR__ . '/despesas/tipos.php')) {
-        require __DIR__ . '/despesas/tipos.php';
-    }
-    
-    // ✅ Motoristas
-    if (file_exists(__DIR__ . '/motoristas/motoristas.php')) {
-        require __DIR__ . '/motoristas/motoristas.php';
-    }
-    
-    // ✅ Camiões e Trelas
-    if (file_exists(__DIR__ . '/camioes/camioes.php')) {
-        require __DIR__ . '/camioes/camioes.php';
-    }
-    
-    // ✅ Viagens (CRUD principal)
-    if (file_exists(__DIR__ . '/viagens/viagens.php')) {
-        require __DIR__ . '/viagens/viagens.php';
-    }
-    
+    Route::prefix('manutencao')->group(function () {
+        $manutencaoFiles = [
+            'ordens-trabalho.php',
+            'avarias.php',
+            'fornecedores.php',      
+            'orcamentos.php',        
+            'externa.php',           
+            'socorro.php',       
+            'pecas.php',
+            'preventiva.php',
+            'inspecoes.php',
+        ];
+        
+        foreach ($manutencaoFiles as $file) {
+            $path = __DIR__ . '/manutencao/' . $file;
+            if (file_exists($path)) {
+                require $path;
+            }
+        }
+    });
+
     // ============================================
-    // ROTAS ESPECIAIS DE VALIDAÇÃO
+    // COMBUSTÍVEL
     // ============================================
+    $combustivelFiles = [
+        'combustivel/combustivel.php',
+        'combustivel/tanques.php',
+    ];
     
-    // Status de motorista
-    Route::get('/viagens/motorista/{motorista}/status', [App\Http\Controllers\Api\ViagemController::class, 'verificarStatusMotorista']);
-    
-    // Status de camião
-    Route::get('/viagens/camiao/{matricula}/status', [App\Http\Controllers\Api\ViagemController::class, 'verificarStatusCamiao']);
-    
-    // Status de trela
-    Route::get('/viagens/trela/{matricula}/status', [App\Http\Controllers\Api\ViagemController::class, 'verificarStatusTrela']);
-    
-    // Containers disponíveis para ordem
-    Route::get('/ordens/{id}/containers-disponiveis', [App\Http\Controllers\Api\OrdemController::class, 'containersDisponiveis']);
-    
-    // Break bulk disponível para ordem
-    Route::get('/ordens/{id}/break-bulk-disponivel', [App\Http\Controllers\Api\OrdemController::class, 'breakBulkDisponivel']);
-    
-    // Marcar container como usado
-    Route::put('/containers/{container}/marcar-usado', [App\Http\Controllers\Api\OrdemController::class, 'marcarContainerComoUsado']);
-    
-    // ============================================
-    // ✅ EMPRESA
-    // ============================================
-    if (file_exists(__DIR__ . '/empresa/empresa.php')) {
-        require __DIR__ . '/empresa/empresa.php';
+    foreach ($combustivelFiles as $file) {
+        $path = __DIR__ . '/' . $file;
+        if (file_exists($path)) {
+            require $path;
+        }
     }
-    
+
     // ============================================
-    // ✅ REPORTES E ESTATÍSTICAS
+    // FATURAÇÃO
     // ============================================
-    if (file_exists(__DIR__ . '/reportes/reportes.php')) {
-        require __DIR__ . '/reportes/reportes.php';
+    Route::prefix('ordens-faturacao')->group(function () {
+        Route::get('/', [App\Http\Controllers\Api\OrdemFaturacaoController::class, 'index']);
+        Route::post('/', [App\Http\Controllers\Api\OrdemFaturacaoController::class, 'store']);
+        Route::prefix('{id}')->group(function () {
+            Route::post('/processar', [App\Http\Controllers\Api\OrdemFaturacaoController::class, 'marcarProcessado']);
+            Route::put('/', [App\Http\Controllers\Api\OrdemFaturacaoController::class, 'update']);
+            Route::delete('/', [App\Http\Controllers\Api\OrdemFaturacaoController::class, 'destroy']);
+        });
+    });
+
+    Route::prefix('notas-fiscais')->group(function () {
+        Route::get('/', [App\Http\Controllers\Api\NotaFiscalController::class, 'index']);
+        Route::post('/', [App\Http\Controllers\Api\NotaFiscalController::class, 'store']);
+        Route::prefix('{id}')->group(function () {
+            Route::put('/', [App\Http\Controllers\Api\NotaFiscalController::class, 'update']);
+            Route::delete('/', [App\Http\Controllers\Api\NotaFiscalController::class, 'destroy']);
+        });
+    });
+
+    // ============================================
+    // RELATÓRIOS
+    // ============================================
+    Route::prefix('relatorios')->group(function () {
+        Route::post('/exportar/viagens', [RelatorioExportController::class, 'exportarViagens']);
+        Route::post('/exportar/financeiro', [RelatorioExportController::class, 'exportarFinanceiro']);
+        Route::post('/exportar/motoristas', [RelatorioExportController::class, 'exportarMotoristas']);
+        Route::post('/exportar/frota', [RelatorioExportController::class, 'exportarFrota']);
+        Route::post('/exportar/manutencao', [RelatorioExportController::class, 'exportarManutencao']);
+        Route::post('/exportar/combustivel', [RelatorioExportController::class, 'exportarCombustivel']);
+    });
+
+    // ============================================
+    // OUTROS MÓDULOS (via include)
+    // ============================================
+    $arquivosParaIncluir = [
+        '/configuracoes/configuracoes.php',
+        '/clientes/clientes.php',
+        '/agentes/agentes.php',
+        '/cargas/cargas.php',
+        '/distancias/distancias.php',
+        '/rates/rates.php',
+        '/ordens/ordens.php',
+        '/despesas/despesas.php',
+        '/despesas/tipos.php',
+        '/motoristas/motoristas.php',
+        '/camioes/camioes.php',
+        '/viagens/viagens.php',
+        '/empresa/empresa.php',
+        '/reportes/reportes.php',
+        '/dashboard/dashboard.php',
+        '/caixa/caixa.php',
+    ];
+
+    foreach ($arquivosParaIncluir as $arquivo) {
+        $caminho = __DIR__ . $arquivo;
+        if (file_exists($caminho)) {
+            require $caminho;
+        }
     }
-    
-    // ============================================
-    // ✅ DASHBOARD
-    // ============================================
-    if (file_exists(__DIR__ . '/dashboard/dashboard.php')) {
-        require __DIR__ . '/dashboard/dashboard.php';
-    }
-    
 });
 
 // ============================================
-// ROTA DE FALLBACK PARA ERRO 404
+// FALLBACK (404)
 // ============================================
 Route::fallback(function () {
     return response()->json([
-        'success' => false,
-        'error' => 'Rota não encontrada',
-        'timestamp' => now()->toISOString(),
+        'success'     => false,
+        'error'       => 'Rota não encontrada',
+        'timestamp'   => now()->toISOString(),
         'suggestions' => [
             'Verifique se a rota está correta',
             'Verifique se o método HTTP está correto',
-            'Certifique-se de estar autenticado para rotas protegidas'
-        ]
+            'Certifique-se de estar autenticado para rotas protegidas',
+        ],
     ], 404);
 });

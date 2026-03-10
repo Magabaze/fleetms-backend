@@ -1,4 +1,5 @@
 <?php
+// app/Models/Viagem.php
 
 namespace App\Models;
 
@@ -86,7 +87,14 @@ class Viagem extends Model
         });
     }
     
-    // 🔴 RELACIONAMENTOS ATUALIZADOS:
+    // ✅ ADICIONAR ESTE RELACIONAMENTO AQUI
+    /**
+     * Relacionamento com Bónus
+     */
+    public function bonus()
+    {
+        return $this->hasOne(Bonus::class, 'viagem_id');
+    }
     
     /**
      * Relacionamento com Ordem
@@ -107,7 +115,7 @@ class Viagem extends Model
     }
     
     /**
-     * 🔴 RELACIONAMENTO NOVO com Trela
+     * Relacionamento com Trela
      */
     public function trela()
     {
@@ -116,8 +124,7 @@ class Viagem extends Model
     }
     
     /**
-     * 🔴 RELACIONAMENTO ATUALIZADO com Motorista
-     * Usando nome_completo como chave
+     * Relacionamento com Motorista
      */
     public function motorista()
     {
@@ -127,11 +134,51 @@ class Viagem extends Model
     
     /**
      * Método de conveniência - alias para motorista()
-     * (mantém compatibilidade com código existente)
      */
     public function motoristaRel()
     {
         return $this->motorista();
+    }
+    
+    /**
+     * Relacionamento com Container
+     */
+    public function container()
+    {
+        return $this->hasOne(Container::class, 'viagem_id')
+            ->orWhere(function ($query) {
+                $query->where('numero_container', $this->container_no);
+            })
+            ->where('tenant_id', $this->tenant_id);
+    }
+    
+    /**
+     * Relacionamento com Break Bulk Items
+     */
+    public function breakBulkItems()
+    {
+        return $this->belongsToMany(BreakBulkItem::class, 'viagem_break_bulk', 'viagem_id', 'break_bulk_item_id')
+                    ->withPivot('peso_utilizado', 'quantidade_utilizada')
+                    ->withTimestamps()
+                    ->where('tenant_id', $this->tenant_id);
+    }
+    
+    /**
+     * Relacionamento direto com Break Bulk Item
+     */
+    public function breakBulkItem()
+    {
+        return $this->hasOne(BreakBulkItem::class, 'viagem_id')
+            ->where('tenant_id', $this->tenant_id);
+    }
+    
+    /**
+     * Relacionamento com despesas do motorista
+     */
+    public function despesas()
+    {
+        return $this->hasMany(DriverExpense::class, 'viagem_id')
+            ->where('tenant_id', $this->tenant_id);
     }
     
     /**
@@ -151,7 +198,7 @@ class Viagem extends Model
     }
     
     /**
-     * Verificar se viagem está disponível (não tem viagens ativas)
+     * Verificar se viagem está disponível
      */
     public static function verificarDisponibilidade($tipo, $valor, $excluirId = null)
     {
@@ -174,5 +221,100 @@ class Viagem extends Model
         }
         
         return $query->doesntExist();
+    }
+    
+    /**
+     * Verificar se viagem pode ser criada com os recursos
+     */
+    public static function podeCriarViagem($camiaoMatricula, $motoristaNome, $trelaMatricula = null)
+    {
+        $tenantId = tenant('id');
+        
+        $camiaoDisponivel = !self::ativas()
+            ->where('tenant_id', $tenantId)
+            ->where('truck_number', $camiaoMatricula)
+            ->exists();
+        
+        $motoristaDisponivel = !self::ativas()
+            ->where('tenant_id', $tenantId)
+            ->where('driver', $motoristaNome)
+            ->exists();
+        
+        $trelaDisponivel = true;
+        if ($trelaMatricula) {
+            $trelaDisponivel = !self::ativas()
+                ->where('tenant_id', $tenantId)
+                ->where('trailer_number', $trelaMatricula)
+                ->exists();
+        }
+        
+        return [
+            'camiao_disponivel' => $camiaoDisponivel,
+            'motorista_disponivel' => $motoristaDisponivel,
+            'trela_disponivel' => $trelaDisponivel,
+            'tudo_disponivel' => $camiaoDisponivel && $motoristaDisponivel && $trelaDisponivel
+        ];
+    }
+    
+    /**
+     * Associar container à viagem
+     */
+    public function associarContainer($containerId)
+    {
+        $container = Container::where('tenant_id', $this->tenant_id)
+            ->find($containerId);
+        
+        if ($container) {
+            $container->update([
+                'viagem_id' => $this->id,
+                'status' => 'loaded',
+                'is_available' => false,
+                'data_carregamento' => now()
+            ]);
+            
+            $this->update([
+                'container_no' => $container->numero_container
+            ]);
+            
+            return true;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Associar break bulk à viagem
+     */
+    public function associarBreakBulk($breakBulkId, $pesoUtilizado)
+    {
+        $breakBulkItem = BreakBulkItem::where('tenant_id', $this->tenant_id)
+            ->find($breakBulkId);
+        
+        if ($breakBulkItem) {
+            $pesoPorUnidade = $breakBulkItem->peso_por_unidade ?: 50;
+            $quantidadeUtilizada = ceil($pesoUtilizado / $pesoPorUnidade);
+            
+            $breakBulkItem->update([
+                'viagem_id' => $this->id,
+                'peso_utilizado' => $breakBulkItem->peso_utilizado + $pesoUtilizado,
+                'quantidade_utilizada' => $breakBulkItem->quantidade_utilizada + $quantidadeUtilizada,
+                'status' => ($breakBulkItem->peso_utilizado >= $breakBulkItem->peso_total) ? 'loaded' : 'partially_used'
+            ]);
+            
+            if (class_exists('App\Models\ViagemBreakBulk')) {
+                $this->breakBulkItems()->attach($breakBulkId, [
+                    'peso_utilizado' => $pesoUtilizado,
+                    'quantidade_utilizada' => $quantidadeUtilizada
+                ]);
+            }
+            
+            $this->update([
+                'weight' => $pesoUtilizado
+            ]);
+            
+            return true;
+        }
+        
+        return false;
     }
 }

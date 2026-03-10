@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Models\Empresa;
 use App\Observers\EmpresaObserver;
 use Illuminate\Support\ServiceProvider;
+use Barryvdh\Snappy\ServiceProvider as SnappyServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -13,7 +14,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Registrar o Snappy Service Provider
+        $this->app->register(SnappyServiceProvider::class);
     }
 
     /**

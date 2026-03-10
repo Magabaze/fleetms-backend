@@ -1,6 +1,4 @@
 <?php
-// app/Models/Empresa.php
-
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -9,8 +7,6 @@ use Illuminate\Database\Eloquent\Model;
 class Empresa extends Model
 {
     use HasFactory;
-
-    protected $table = 'empresas';
 
     protected $fillable = [
         'nome',
@@ -31,6 +27,7 @@ class Empresa extends Model
         'moeda_padrao',
         'fuso_horario',
         'tenant_id',
+        'logo_url', // ✅ Obrigatório
     ];
 
     protected $casts = [
@@ -38,9 +35,9 @@ class Empresa extends Model
         'updated_at' => 'datetime',
     ];
 
-    // Relacionamento com tenant
+    // Correção do relacionamento usando caminho absoluto
     public function tenant()
     {
-        return $this->belongsTo(Tenant::class);
+        return $this->belongsTo(\App\Models\Tenant::class);
     }
 }
