@@ -5,15 +5,82 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Viagem;
-use App\Models\DriverExpense; // 👈 CORREÇÃO: Usando o modelo correto
+use App\Models\DriverExpense;
 use App\Models\Empresa;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 use Barryvdh\DomPDF\Facade\Pdf;
 
 class CaixaPrintController extends Controller
 {
+    /**
+     * CONVERTE IMAGEM PARA BASE64 DE FORMA ROBUSTA
+     */
+    private function getImageBase64($path)
+    {
+        if (empty($path)) {
+            return null;
+        }
+
+        try {
+            if (strpos($path, 'data:image') === 0) {
+                return $path;
+            }
+
+            // 1. Tenta via Storage disk R2
+            if (Storage::disk('r2')->exists($path)) {
+                $imageData = Storage::disk('r2')->get($path);
+                if ($imageData) {
+                    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                    $mimeType = finfo_buffer($finfo, $imageData);
+                    finfo_close($finfo);
+                    
+                    if (!$mimeType) {
+                        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+                        $mimeType = match($ext) {
+                            'jpg', 'jpeg' => 'image/jpeg',
+                            'png' => 'image/png',
+                            'gif' => 'image/gif',
+                            'webp' => 'image/webp',
+                            default => 'image/jpeg',
+                        };
+                    }
+                    
+                    return 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
+                }
+            }
+
+            // 2. Fallback: URL externa via cURL
+            if (filter_var($path, FILTER_VALIDATE_URL)) {
+                $ch = curl_init($path);
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_FOLLOWLOCATION => true,
+                    CURLOPT_TIMEOUT => 15,
+                    CURLOPT_SSL_VERIFYPEER => false,
+                    CURLOPT_USERAGENT => 'Mozilla/5.0',
+                ]);
+                $imageData = curl_exec($ch);
+                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                curl_close($ch);
+
+                if ($imageData !== false && $httpCode === 200) {
+                    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                    $mimeType = finfo_buffer($finfo, $imageData) ?: 'image/jpeg';
+                    finfo_close($finfo);
+                    return 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
+                }
+            }
+
+            return null;
+        } catch (\Exception $e) {
+            Log::error('Erro ao obter imagem: ' . $e->getMessage());
+            return null;
+        }
+    }
+
     /**
      * CONVERTER NÚMERO PARA EXTENSO
      */
@@ -37,16 +104,18 @@ class CaixaPrintController extends Controller
 
         $extenso = '';
 
+        if ($reais >= 1000000) {
+            $milhoes = floor($reais / 1000000);
+            $reais = $reais % 1000000;
+            $extensoMilhoes = $this->numeroPorExtensoParcial($milhoes, $unidades, $dezenas, $centenas, $especiais);
+            $extenso .= $milhoes == 1 ? 'um milhão' : $extensoMilhoes . ' milhões';
+            if ($reais > 0) $extenso .= ', ';
+        }
+
         if ($reais >= 1000) {
             $milhares = floor($reais / 1000);
             $reais = $reais % 1000;
-
-            if ($milhares == 1) {
-                $extenso .= 'mil';
-            } else {
-                $extenso .= $this->numeroPorExtensoParcial($milhares, $unidades, $dezenas, $centenas, $especiais) . ' mil';
-            }
-
+            $extenso .= $milhares == 1 ? 'mil' : $this->numeroPorExtensoParcial($milhares, $unidades, $dezenas, $centenas, $especiais) . ' mil';
             if ($reais > 0) $extenso .= ' e ';
         }
 
@@ -54,15 +123,11 @@ class CaixaPrintController extends Controller
             $extenso .= $this->numeroPorExtensoParcial($reais, $unidades, $dezenas, $centenas, $especiais);
         }
 
-        if ($valor >= 2) {
-            $extenso .= ' meticais';
-        } else {
-            $extenso .= ' metical';
-        }
+        $extenso .= $valor >= 2 ? ' meticais' : ' metical';
 
         if ($centavos > 0) {
             $extenso .= ' e ' . $this->numeroPorExtensoParcial($centavos, $unidades, $dezenas, $centenas, $especiais);
-            $extenso .= ' centavo' . ($centavos >= 2 ? 's' : '');
+            $extenso .= $centavos >= 2 ? ' centavos' : ' centavo';
         }
 
         return $extenso;
@@ -78,35 +143,19 @@ class CaixaPrintController extends Controller
             return $d[$dez] . ($uni > 0 ? ' e ' . $u[$uni] : '');
         }
         if ($num == 100) return 'cem';
-        
         $cen = floor($num / 100);
         $resto = $num % 100;
         return $c[$cen] . ($resto > 0 ? ' e ' . $this->numeroPorExtensoParcial($resto, $u, $d, $c, $e) : '');
     }
 
-    private function dataPorExtenso($data)
-    {
-        if (!$data) return 'Data não informada';
-        
-        $dias = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
-        $meses = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
-        
-        try {
-            $t = strtotime($data);
-            if (!$t) return 'Data inválida';
-            
-            return "{$dias[date('w', $t)]}, " . date('d', $t) . " de {$meses[date('n', $t)-1]} de " . date('Y', $t);
-        } catch (\Exception $e) {
-            return 'Data inválida';
-        }
-    }
-
+    /**
+     * IMPRIMIR JUSTIFICATIVO DE VIAGEM
+     */
     public function printJustificativo(Request $request, $viagemId)
     {
         try {
             Log::info('🖨️ Imprimindo justificativo de viagem', ['viagem_id' => $viagemId]);
 
-            // Autenticação via token na URL
             $token = $request->query('token');
             if ($token) {
                 $user = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
@@ -119,51 +168,45 @@ class CaixaPrintController extends Controller
 
             $user = Auth::user();
 
-            // Buscar viagem
-            $viagem = Viagem::where('tenant_id', $user->tenant_id)
-                ->find($viagemId);
-
+            $viagem = Viagem::where('tenant_id', $user->tenant_id)->find($viagemId);
             if (!$viagem) {
                 return response()->json(['error' => 'Viagem não encontrada'], 404);
             }
 
-            // ✅ CORREÇÃO: Usando DriverExpense em vez de Despesa
             $despesas = DriverExpense::where('viagem_id', $viagemId)
-                ->where('is_active', true) // Adicionado filtro de ativas
+                ->where('is_active', true)
                 ->orderBy('created_at')
                 ->get();
 
             $empresa = Empresa::where('tenant_id', $user->tenant_id)->first();
 
-            // Agrupar despesas por status
+            // Usar o método unificado de imagem
+            $logo_empresa = null;
+            if ($empresa && $empresa->logo_url) {
+                $logo_empresa = $this->getImageBase64($empresa->logo_url);
+            }
+
             $despesasPendentes = $despesas->where('status', 'paid');
             $despesasJustificadas = $despesas->where('status', 'settled');
 
-            // Calcular totais por moeda
             $totais = [];
             foreach ($despesas as $despesa) {
-                $moeda = $despesa->currency;
+                $moeda = $despesa->currency ?? 'MZN';
                 if (!isset($totais[$moeda])) {
                     $totais[$moeda] = 0;
                 }
-                $totais[$moeda] += $despesa->amount;
+                $totais[$moeda] += $despesa->amount ?? 0;
             }
 
-            // Buscar logo da empresa
-            $logo_empresa = null;
-            if ($empresa && $empresa->logo_url) {
-                try {
-                    if (\Storage::disk('r2')->exists($empresa->logo_url)) {
-                        $imageData = \Storage::disk('r2')->get($empresa->logo_url);
-                        $mimeType = finfo_buffer(finfo_open(FILEINFO_MIME_TYPE), $imageData);
-                        $logo_empresa = 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
-                    }
-                } catch (\Exception $e) {
-                    Log::warning('Erro ao carregar logo: ' . $e->getMessage());
+            $totaisFormatados = [];
+            $valorExtenso = '';
+            foreach ($totais as $moeda => $valor) {
+                $totaisFormatados[$moeda] = number_format($valor, 2, ',', '.');
+                if (empty($valorExtenso)) {
+                    $valorExtenso = $this->numeroPorExtenso($valor);
                 }
             }
 
-            // Preparar dados da view
             $data = [
                 'viagem' => $viagem,
                 'despesas' => $despesas,
@@ -174,45 +217,28 @@ class CaixaPrintController extends Controller
                 'tipo' => $request->query('tipo', 'original'),
                 'copia' => $request->query('copia', 'false'),
                 'totais' => $totais,
-                
-                'titulo' => 'JUSTIFICATIVO DE DESPESAS',
-                'subtitulo' => 'Viagem ' . $viagem->trip_number,
-                'cor' => '0aca7d',
-                'cor_fundo' => 'f0fdf4',
-                
-                'data_viagem' => $viagem->schedule_date ? date('d/m/Y', strtotime($viagem->schedule_date)) : 'N/I',
-                'data_extenso' => $this->dataPorExtenso($viagem->schedule_date),
+                'totaisFormatados' => $totaisFormatados,
+                'valorExtenso' => $valorExtenso,
                 'data_emissao' => now()->format('d/m/Y H:i:s'),
                 'current_date' => now()->format('d/m/Y H:i:s'),
-                
                 'usuario' => $user->name ?? 'Sistema',
-                
-                'km_previsto' => number_format($viagem->km_previsto ?? 0, 0, ',', '.'),
-                'km_real' => number_format($viagem->km_real ?? 0, 0, ',', '.'),
             ];
 
-            // Formatar totais
-            $totaisFormatados = [];
-            $valorExtenso = '';
-            foreach ($totais as $moeda => $valor) {
-                $totaisFormatados[$moeda] = number_format($valor, 2, ',', '.');
-                if (empty($valorExtenso)) {
-                    $valorExtenso = $this->numeroPorExtenso($valor);
-                }
-            }
-            $data['totaisFormatados'] = $totaisFormatados;
-            $data['valorExtenso'] = $valorExtenso;
-
-            // Debug mode
             if ($request->query('debug') === 'true') {
                 $html = view('pdf.justificativo-viagem', $data)->render();
                 return response($html)->header('Content-Type', 'text/html');
             }
 
-            // Gerar PDF
             $pdf = Pdf::loadView('pdf.justificativo-viagem', $data);
             $pdf->setPaper('A4', 'portrait');
-            
+            $pdf->setOptions([
+                'defaultFont' => 'sans-serif',
+                'isHtml5ParserEnabled' => true,
+                'isRemoteEnabled' => true,
+                'isPhpEnabled' => true,
+                'dpi' => 150,
+            ]);
+
             $filename = 'JUSTIFICATIVO_' . $viagem->trip_number . '_' . date('Ymd_His') . '.pdf';
 
             if ($request->query('download') === '1') {
@@ -222,73 +248,7 @@ class CaixaPrintController extends Controller
             return $pdf->stream($filename);
 
         } catch (\Exception $e) {
-            Log::error('❌ Erro ao gerar justificativo: ' . $e->getMessage(), [
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            return response()->json(['error' => $e->getMessage()], 500);
-        }
-    }
-
-    public function printResumoDespesas(Request $request, $viagemId)
-    {
-        try {
-            Log::info('🖨️ Imprimindo resumo de despesas', ['viagem_id' => $viagemId]);
-
-            $token = $request->query('token');
-            if ($token) {
-                $user = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
-                if ($user) Auth::login($user->tokenable);
-            }
-
-            if (!Auth::check()) {
-                return response()->json(['error' => 'Não autenticado'], 401);
-            }
-
-            $user = Auth::user();
-
-            $viagem = Viagem::where('tenant_id', $user->tenant_id)
-                ->find($viagemId);
-
-            if (!$viagem) {
-                return response()->json(['error' => 'Viagem não encontrada'], 404);
-            }
-
-            // ✅ CORREÇÃO: Usando DriverExpense
-            $despesas = DriverExpense::where('viagem_id', $viagemId)
-                ->where('is_active', true)
-                ->orderBy('created_at')
-                ->get();
-
-            $empresa = Empresa::where('tenant_id', $user->tenant_id)->first();
-            $despesasPorTipo = $despesas->groupBy('expense_head');
-
-            $data = [
-                'viagem' => $viagem,
-                'despesas' => $despesas,
-                'despesasPorTipo' => $despesasPorTipo,
-                'empresa' => $empresa,
-                'data_emissao' => now()->format('d/m/Y H:i:s'),
-                'usuario' => $user->name ?? 'Sistema',
-            ];
-
-            if ($request->query('debug') === 'true') {
-                $html = view('pdf.resumo-despesas', $data)->render();
-                return response($html)->header('Content-Type', 'text/html');
-            }
-
-            $pdf = Pdf::loadView('pdf.resumo-despesas', $data);
-            $filename = 'RESUMO_DESPESAS_' . $viagem->trip_number . '_' . date('Ymd_His') . '.pdf';
-
-            if ($request->query('download') === '1') {
-                return $pdf->download($filename);
-            }
-
-            return $pdf->stream($filename);
-
-        } catch (\Exception $e) {
-            Log::error('❌ Erro ao gerar resumo: ' . $e->getMessage());
+            Log::error('❌ Erro ao gerar justificativo: ' . $e->getMessage());
             return response()->json(['error' => $e->getMessage()], 500);
         }
     }

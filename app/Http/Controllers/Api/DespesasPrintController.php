@@ -4,533 +4,266 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Viagem;
-use App\Models\DriverExpense; // ✅ CORRIGIDO: Usando DriverExpense em vez de ViagemDespesa
+use App\Models\DriverExpense;
 use App\Models\Empresa;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\View;
-use Barryvdh\Snappy\Facades\SnappyPdf;
+use Barryvdh\DomPDF\Facade\Pdf;
 
 class DespesasPrintController extends Controller
 {
     /**
-     * IMPRIMIR REFORÇO DE VALORES COM SNAPPY PDF
-     * 
-     * POST /api/viagens/{viagemId}/print-despesas
-     * GET  /api/viagens/{viagemId}/print-despesas?token=xxx
-     * 
-     * @param Request $request
-     * @param int $viagemId
-     * @return \Illuminate\Http\Response|\Illuminate\Http\JsonResponse
+     * CONVERTE IMAGEM PARA BASE64 DE FORMA ROBUSTA
      */
-    public function printDespesas(Request $request, $viagemId)
+    private function getImageBase64($path)
     {
+        if (empty($path)) {
+            Log::warning('getImageBase64: caminho vazio');
+            return null;
+        }
+
         try {
-            // ============================================
-            // ✅ PASSO 1: AUTENTICAÇÃO - VIA TOKEN NA URL
-            // ============================================
-            Log::info('🖨️ Iniciando geração de PDF Reforço de Valores', [
-                'viagem_id' => $viagemId,
-                'method' => $request->method(),
-                'url' => $request->fullUrl(),
-                'has_token_query' => $request->has('token') ? 'SIM' : 'NÃO',
-                'has_token_header' => $request->bearerToken() ? 'SIM' : 'NÃO'
-            ]);
+            // Se já for base64, retorna diretamente
+            if (strpos($path, 'data:image') === 0) {
+                return $path;
+            }
 
-            // ✅ AUTENTICAÇÃO VIA QUERY STRING (token na URL) - IGUAL AO PRINTCONTROLLER
-            $token = $request->query('token');
-            if ($token) {
-                try {
-                    $user = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
-                    if ($user) {
-                        Auth::login($user->tokenable);
-                        Log::info('✅ Autenticado via token na URL (query string)', [
-                            'user_id' => Auth::id(),
-                            'user_name' => Auth::user()?->name
-                        ]);
+            Log::info('🔍 Tentando obter imagem', ['path' => $path]);
+
+            // 1. Tenta via Storage disk R2
+            if (Storage::disk('r2')->exists($path)) {
+                $imageData = Storage::disk('r2')->get($path);
+                if ($imageData) {
+                    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                    $mimeType = finfo_buffer($finfo, $imageData);
+                    finfo_close($finfo);
+
+                    if (!$mimeType) {
+                        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+                        $mimeType = match($ext) {
+                            'jpg', 'jpeg' => 'image/jpeg',
+                            'png' => 'image/png',
+                            'gif' => 'image/gif',
+                            'webp' => 'image/webp',
+                            default => 'image/jpeg',
+                        };
                     }
-                } catch (\Exception $e) {
-                    Log::warning('⚠️ Token inválido na query string', [
-                        'error' => $e->getMessage(),
-                        'token_preview' => substr($token, 0, 10) . '...'
-                    ]);
+
+                    $base64 = 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
+                    Log::info('✅ Imagem carregada do R2', ['mime_type' => $mimeType]);
+                    return $base64;
                 }
             }
 
-            // ✅ VERIFICAR SE ESTÁ AUTENTICADO
-            if (!Auth::check()) {
-                Log::warning('⚠️ Usuário não autenticado');
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Não autenticado',
-                    'message' => 'Token de autenticação não fornecido ou inválido'
-                ], 401);
+            // 2. Tenta via Storage local
+            if (Storage::disk('public')->exists($path)) {
+                $imageData = Storage::disk('public')->get($path);
+                if ($imageData) {
+                    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                    $mimeType = finfo_buffer($finfo, $imageData);
+                    finfo_close($finfo);
+                    $base64 = 'data:' . ($mimeType ?: 'image/jpeg') . ';base64,' . base64_encode($imageData);
+                    Log::info('✅ Imagem carregada do storage local');
+                    return $base64;
+                }
             }
 
-            $user = Auth::user();
-
-            // ============================================
-            // ✅ PASSO 2: BUSCAR VIAGEM COM VALIDAÇÃO DE SEGURANÇA
-            // ============================================
-            $viagem = $this->buscarViagemComSeguranca($viagemId, $user?->tenant_id);
-            
-            if (!$viagem) {
-                Log::warning('⚠️ Viagem não encontrada ou acesso negado', [
-                    'viagem_id' => $viagemId,
-                    'user_id' => $user?->id,
-                    'tenant_id' => $user?->tenant_id
-                ]);
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Viagem não encontrada'
-                ], 404);
-            }
-
-            Log::info('✅ Viagem encontrada', [
-                'viagem_id' => $viagem->id,
-                'trip_number' => $viagem->trip_number,
-                'driver' => $viagem->driver
-            ]);
-
-            // ============================================
-            // ✅ PASSO 3: BUSCAR EMPRESA
-            // ============================================
-            $empresa = $this->buscarEmpresa($viagem->tenant_id);
-            
-            // ============================================
-            // ✅ PASSO 4: VALIDAR ENTRADA (SUPORTA GET E POST)
-            // ============================================
-            $despesaIds = [];
-            
-            if ($request->isMethod('post')) {
-                // POST: recebe do body
-                $despesaIds = $request->input('despesa_ids', []);
-            } else {
-                // GET: recebe da query string
-                $despesaIdsJson = $request->query('despesa_ids', '[]');
-                $despesaIds = json_decode($despesaIdsJson, true) ?? [];
-            }
-            
-            $tipo = $request->input('tipo', $request->query('tipo', 'original'));
-            
-            if (empty($despesaIds)) {
-                Log::warning('⚠️ Nenhuma despesa selecionada', [
-                    'viagem_id' => $viagemId,
-                    'user_id' => $user?->id
-                ]);
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Nenhuma despesa selecionada'
-                ], 422);
-            }
-
-            if (!in_array($tipo, ['original', 'duplicate'])) {
-                $tipo = 'original';
-            }
-
-            Log::info('📋 Parâmetros de impressão', [
-                'despesa_ids_count' => count($despesaIds),
-                'despesa_ids' => $despesaIds,
-                'tipo' => $tipo,
-                'method' => $request->method()
-            ]);
-
-            // ============================================
-            // ✅ PASSO 5: BUSCAR DESPESAS COM VALIDAÇÃO - USANDO DriverExpense
-            // ============================================
-            $despesas = $this->buscarDespesasComValidacao($viagemId, $despesaIds);
-            
-            if (count($despesas) === 0) {
-                Log::warning('⚠️ Nenhuma despesa válida encontrada', [
-                    'viagem_id' => $viagemId,
-                    'despesa_ids_solicitadas' => count($despesaIds)
-                ]);
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Nenhuma despesa válida encontrada'
-                ], 422);
-            }
-
-            if (count($despesas) !== count($despesaIds)) {
-                Log::warning('⚠️ Nem todas as despesas foram encontradas', [
-                    'solicitadas' => count($despesaIds),
-                    'encontradas' => count($despesas),
-                    'nao_encontradas' => array_diff($despesaIds, array_column($despesas, 'id'))
-                ]);
-            }
-
-            // ============================================
-            // ✅ PASSO 6: AGRUPAR DESPESAS POR MOEDA
-            // ============================================
-            $agrupadas = $this->agruparDespesasPorMoeda($despesas);
-
-            // ============================================
-            // ✅ PASSO 7: BUSCAR LOGO DA EMPRESA
-            // ============================================
-            $logoEmpresaBase64 = null;
-            if ($empresa && $empresa->logo_url) {
-                $logoEmpresaBase64 = $this->getImageBase64($empresa->logo_url);
-                Log::info('🖼️ Logo da empresa', [
-                    'tem_logo' => !empty($logoEmpresaBase64),
-                    'tamanho' => $logoEmpresaBase64 ? strlen($logoEmpresaBase64) : 0
-                ]);
-            }
-
-            // ============================================
-            // ✅ PASSO 8: PREPARAR DADOS PARA A VIEW
-            // ============================================
-            $data = [
-                'viagem' => $viagem,
-                'empresa' => $empresa,
-                'despesas_agrupadas' => $agrupadas,
-                'tipo' => $tipo,
-                'logo_empresa' => $logoEmpresaBase64,
-                'usuario' => $user?->name ?? 'Sistema',
-                'data_emissao' => now()->format('d/m/Y H:i:s'),
-                'total_moedas' => count($agrupadas)
-            ];
-
-            // ============================================
-            // ✅ PASSO 9: DEBUG MODE (RETORNA HTML)
-            // ============================================
-            if ($request->query('debug') === 'true' || $request->query('html') === 'true') {
-                Log::info('🐛 Debug mode ativado - renderizando HTML');
+            // 3. Fallback: URL externa via cURL
+            if (filter_var($path, FILTER_VALIDATE_URL)) {
+                Log::info('🌐 Tentando baixar via URL', ['url' => $path]);
                 
-                try {
-                    $html = View::make('pdf.reforco-valores', $data)->render();
-                    
-                    Log::info('✅ View renderizada com sucesso', [
-                        'view' => 'pdf.reforco-valores',
-                        'html_length' => strlen($html)
-                    ]);
-                    
-                    return response($html)->header('Content-Type', 'text/html; charset=utf-8');
-                } catch (\Exception $e) {
-                    Log::error('❌ Erro ao renderizar view', [
-                        'view' => 'pdf.reforco-valores',
-                        'erro' => $e->getMessage(),
-                        'trace' => $e->getTraceAsString()
-                    ]);
-                    
-                    return response()->json([
-                        'success' => false,
-                        'error' => 'Erro ao renderizar HTML',
-                        'message' => $e->getMessage()
-                    ], 500);
+                $ch = curl_init($path);
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_FOLLOWLOCATION => true,
+                    CURLOPT_TIMEOUT => 15,
+                    CURLOPT_SSL_VERIFYPEER => false,
+                    CURLOPT_SSL_VERIFYHOST => false,
+                    CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                ]);
+                $imageData = curl_exec($ch);
+                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+                curl_close($ch);
+
+                if ($imageData !== false && $httpCode === 200) {
+                    $mimeType = $contentType ?: 'image/jpeg';
+                    $base64 = 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
+                    Log::info('✅ Imagem baixada via URL', ['http_code' => $httpCode]);
+                    return $base64;
+                }
+                
+                Log::warning('⚠️ Falha ao baixar via URL', ['http_code' => $httpCode]);
+            }
+
+            // 4. Fallback: tenta como caminho absoluto do servidor
+            if (file_exists($path)) {
+                $imageData = file_get_contents($path);
+                if ($imageData) {
+                    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                    $mimeType = finfo_buffer($finfo, $imageData);
+                    finfo_close($finfo);
+                    $base64 = 'data:' . ($mimeType ?: 'image/jpeg') . ';base64,' . base64_encode($imageData);
+                    Log::info('✅ Imagem carregada do sistema de arquivos');
+                    return $base64;
                 }
             }
 
-            // ============================================
-            // ✅ PASSO 10: GERAR PDF COM SNAPPY
-            // ============================================
-            return $this->generatePdf($data, $viagem, $tipo, $request->query('download') === '1');
+            Log::warning('❌ Não foi possível obter imagem por nenhum método', ['path' => $path]);
+            return null;
 
         } catch (\Exception $e) {
-            Log::error('❌ Erro no DespesasPrintController::printDespesas', [
-                'viagem_id' => $viagemId ?? 'N/A',
-                'user_id' => Auth::id() ?? 'N/A',
-                'erro' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            
-            return response()->json([
-                'success' => false,
-                'error' => 'Erro ao gerar PDF',
-                'message' => config('app.debug') ? $e->getMessage() : 'Erro interno na geração do documento'
-            ], 500);
+            Log::error('❌ Erro ao obter imagem: ' . $e->getMessage(), ['path' => $path]);
+            return null;
         }
     }
 
     /**
-     * Buscar viagem com validação de segurança
+     * BUSCAR VIAGEM COM SEGURANÇA
      */
     private function buscarViagemComSeguranca(int $viagemId, ?string $tenantId): ?Viagem
     {
         $query = Viagem::where('id', $viagemId);
-        
-        // Se o usuário tem tenant, filtrar por tenant
         if ($tenantId) {
             $query->where('tenant_id', $tenantId);
         }
-        
         return $query->first();
     }
 
     /**
-     * Buscar despesas com validação de viagem - USANDO DriverExpense
+     * IMPRIMIR REFORÇO DE VALORES (DESPESAS)
      */
-    private function buscarDespesasComValidacao(int $viagemId, array $despesaIds): array
-    {
-        return DriverExpense::where('viagem_id', $viagemId) // ✅ CORRIGIDO: DriverExpense
-            ->whereIn('id', $despesaIds)
-            ->where('is_active', true)
-            ->with('usuario')
-            ->get()
-            ->toArray();
-    }
-
-    /**
-     * Buscar empresa por tenant_id
-     */
-    private function buscarEmpresa(?string $tenantId): ?Empresa
-    {
-        if (!$tenantId) {
-            return null;
-        }
-        
-        return Empresa::where('tenant_id', $tenantId)->first();
-    }
-
-    /**
-     * Agrupar despesas por moeda
-     */
-    private function agruparDespesasPorMoeda(array $despesas): array
-    {
-        $agrupadas = [];
-
-        foreach ($despesas as $despesa) {
-            $moeda = $despesa['currency'] ?? 'MZN';
-            
-            if (!isset($agrupadas[$moeda])) {
-                $agrupadas[$moeda] = [
-                    'total' => 0,
-                    'descricoes' => [],
-                    'quantidade' => 0
-                ];
-            }
-
-            $agrupadas[$moeda]['total'] += floatval($despesa['amount']);
-            $agrupadas[$moeda]['quantidade']++;
-
-            if (!empty($despesa['payment_description']) && 
-                !in_array($despesa['payment_description'], $agrupadas[$moeda]['descricoes'])) {
-                $agrupadas[$moeda]['descricoes'][] = $despesa['payment_description'];
-            }
-        }
-
-        // Ordenar por valor total (decrescente)
-        uasort($agrupadas, fn($a, $b) => $b['total'] <=> $a['total']);
-
-        return $agrupadas;
-    }
-
-    /**
-     * Gerar PDF com Snappy
-     */
-    private function generatePdf(array $data, Viagem $viagem, string $tipo, bool $download = false)
+    public function printDespesas(Request $request, $viagemId)
     {
         try {
-            Log::info('📄 Gerando PDF com Snappy', [
-                'viagem_id' => $viagem->id,
-                'tipo' => $tipo,
-                'download' => $download,
-                'total_moedas' => count($data['despesas_agrupadas'] ?? [])
-            ]);
+            Log::info('🖨️ Imprimindo Reforço de Valores', ['viagem_id' => $viagemId]);
 
-            // ✅ Verificar se a view existe
-            if (!View::exists('pdf.reforco-valores')) {
-                Log::error('❌ View pdf.reforco-valores não encontrada');
-                throw new \Exception('View de PDF não encontrada. Crie o arquivo em resources/views/pdf/reforco-valores.blade.php');
+            // ── AUTENTICAÇÃO ──────────────────────────────────────────
+            $token = $request->query('token');
+            if ($token) {
+                $user = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
+                if ($user) Auth::login($user->tokenable);
             }
 
-            // ✅ Carregar view e gerar PDF
-            $pdf = SnappyPdf::loadView('pdf.reforco-valores', $data)
-                ->setOption('enable-local-file-access', true)
-                ->setOption('page-size', 'A4')
-                ->setOption('orientation', 'portrait')
-                ->setOption('margin-top', '10')
-                ->setOption('margin-right', '10')
-                ->setOption('margin-bottom', '10')
-                ->setOption('margin-left', '10')
-                ->setOption('encoding', 'UTF-8')
-                ->setOption('dpi', 150)
-                ->setOption('disable-smart-shrinking', false)
-                ->setOption('zoom', 1.0)
-                ->setOption('quiet', true);
+            if (!Auth::check()) {
+                return response()->json(['error' => 'Não autenticado'], 401);
+            }
 
-            // ✅ Gerar nome do arquivo
-            $filename = sprintf(
-                'REFORCO_VALORES_%s_%s_%s.pdf',
-                $viagem->trip_number ?? $viagem->tripNumber ?? 'VIAGEM',
-                strtoupper($tipo),
-                date('Ymd_His')
-            );
+            $user = Auth::user();
 
-            Log::info('✅ PDF gerado com sucesso', [
-                'filename' => $filename,
-                'viagem_id' => $viagem->id
+            // ── VIAGEM ────────────────────────────────────────────────
+            $viagem = $this->buscarViagemComSeguranca($viagemId, $user->tenant_id);
+            if (!$viagem) {
+                return response()->json(['error' => 'Viagem não encontrada'], 404);
+            }
+
+            // ── EMPRESA ───────────────────────────────────────────────
+            $empresa = Empresa::where('tenant_id', $user->tenant_id)->first();
+
+            // ── PARÂMETROS ────────────────────────────────────────────
+            $despesaIds = $request->isMethod('post')
+                ? $request->input('despesa_ids', [])
+                : json_decode($request->query('despesa_ids', '[]'), true) ?? [];
+
+            $tipo = $request->input('tipo', $request->query('tipo', 'original'));
+
+            if (empty($despesaIds)) {
+                return response()->json(['error' => 'Nenhuma despesa selecionada'], 422);
+            }
+
+            // ── DESPESAS ──────────────────────────────────────────────
+            $despesas = DriverExpense::where('viagem_id', $viagemId)
+                ->whereIn('id', $despesaIds)
+                ->where('is_active', true)
+                ->with(['tipoDespesa'])
+                ->orderBy('currency')
+                ->orderBy('id')
+                ->get();
+
+            if ($despesas->isEmpty()) {
+                return response()->json(['error' => 'Nenhuma despesa válida encontrada'], 422);
+            }
+
+            // ── RESUMO POR MOEDA ─────────────────────────────────────
+            $resumoPorMoeda = [];
+            foreach ($despesas as $d) {
+                $moeda = $d->currency ?? 'MZN';
+                if (!isset($resumoPorMoeda[$moeda])) {
+                    $resumoPorMoeda[$moeda] = ['total' => 0, 'quantidade' => 0];
+                }
+                $resumoPorMoeda[$moeda]['total'] += floatval($d->amount ?? 0);
+                $resumoPorMoeda[$moeda]['quantidade']++;
+            }
+            arsort($resumoPorMoeda);
+
+            // ── LOGO ──────────────────────────────────────────────────
+            $logoEmpresaBase64 = null;
+            if ($empresa && $empresa->logo_url) {
+                $logoEmpresaBase64 = $this->getImageBase64($empresa->logo_url);
+                Log::info('📸 Logo processada', ['tem_logo' => !empty($logoEmpresaBase64)]);
+            }
+
+            // ── DADOS PARA A VIEW ─────────────────────────────────────
+            $data = [
+                'viagem'           => $viagem,
+                'empresa'          => $empresa,
+                'despesas'         => $despesas,
+                'resumo_por_moeda' => $resumoPorMoeda,
+                'tipo'             => $tipo,
+                'logo_empresa'     => $logoEmpresaBase64,
+                'usuario'          => $user->name ?? 'Sistema',
+                'data_emissao'     => now()->format('d/m/Y H:i:s'),
+                'current_date'     => now()->format('d/m/Y H:i:s'),
+            ];
+
+            // ── DEBUG ─────────────────────────────────────────────────
+            if ($request->query('debug') === 'true') {
+                if (!View::exists('pdf.reforco-valores')) {
+                    return response()->json(['error' => 'View pdf.reforco-valores não encontrada'], 500);
+                }
+                $html = View::make('pdf.reforco-valores', $data)->render();
+                return response($html)->header('Content-Type', 'text/html');
+            }
+
+            // ── GERAR PDF COM DOMPDF ──────────────────────────────────
+            if (!View::exists('pdf.reforco-valores')) {
+                throw new \Exception('View pdf.reforco-valores não encontrada.');
+            }
+
+            $html = View::make('pdf.reforco-valores', $data)->render();
+            
+            $pdf = Pdf::loadHTML($html);
+            $pdf->setPaper('A4', 'portrait');
+            $pdf->setOptions([
+                'defaultFont'          => 'sans-serif',
+                'isHtml5ParserEnabled' => true,
+                'isRemoteEnabled'      => true,
+                'isPhpEnabled'         => true,
+                'dpi'                  => 150,
             ]);
 
-            // ✅ Retornar PDF
-            if ($download) {
+            $filename = 'REFORCO_VALORES_' . ($viagem->trip_number ?? 'VIAGEM') . '_' . strtoupper($tipo) . '_' . date('Ymd_His') . '.pdf';
+
+            if ($request->query('download') === '1' || $request->query('download') === 'true') {
                 return $pdf->download($filename);
             }
 
             return $pdf->stream($filename);
 
         } catch (\Exception $e) {
-            Log::error('❌ Erro ao gerar PDF com Snappy', [
-                'viagem_id' => $viagem->id,
+            Log::error('❌ Erro no DespesasPrintController', [
                 'erro' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
             ]);
-            
             return response()->json([
                 'success' => false,
-                'error' => 'Erro ao gerar PDF com Snappy',
-                'message' => config('app.debug') ? $e->getMessage() : 'Erro na geração do PDF'
+                'error'   => 'Erro ao gerar PDF',
+                'message' => config('app.debug') ? $e->getMessage() : 'Erro interno',
             ], 500);
         }
-    }
-
-    /**
-     * Obter imagem em base64 (de R2 ou URL)
-     */
-    private function getImageBase64(?string $r2Path): ?string
-    {
-        if (empty($r2Path)) {
-            return null;
-        }
-
-        try {
-            // ✅ Tentar obter do R2
-            if (Storage::disk('r2')->exists($r2Path)) {
-                $imageData = Storage::disk('r2')->get($r2Path);
-                if (!$imageData) {
-                    Log::warning('⚠️ Imagem vazia no R2', ['path' => $r2Path]);
-                    return null;
-                }
-
-                $mimeType = $this->detectMimeType($imageData, $r2Path);
-                $base64 = 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
-                
-                Log::info('✅ Imagem carregada do R2', [
-                    'path' => $r2Path,
-                    'mime' => $mimeType,
-                    'size' => strlen($imageData)
-                ]);
-                
-                return $base64;
-            }
-
-            // ✅ Tentar como URL
-            if (filter_var($r2Path, FILTER_VALIDATE_URL)) {
-                return $this->getImageFromUrl($r2Path);
-            }
-
-            Log::warning('⚠️ Arquivo não encontrado no R2 e não é URL válida', [
-                'path' => $r2Path
-            ]);
-            
-            return null;
-
-        } catch (\Exception $e) {
-            Log::warning('⚠️ Erro ao obter imagem para PDF', [
-                'path' => $r2Path,
-                'erro' => $e->getMessage()
-            ]);
-            return null;
-        }
-    }
-
-    /**
-     * Detectar MIME type da imagem
-     */
-    private function detectMimeType(string $imageData, string $path): string
-    {
-        // ✅ Tentar com finfo
-        if (function_exists('finfo_open')) {
-            $finfo = finfo_open(FILEINFO_MIME_TYPE);
-            $mimeType = finfo_buffer($finfo, $imageData);
-            finfo_close($finfo);
-
-            if ($mimeType && strpos($mimeType, 'image/') === 0) {
-                return $mimeType;
-            }
-        }
-
-        // ✅ Fallback: verificar extensão
-        $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
-        return match($extension) {
-            'jpg', 'jpeg' => 'image/jpeg',
-            'png' => 'image/png',
-            'gif' => 'image/gif',
-            'webp' => 'image/webp',
-            'svg' => 'image/svg+xml',
-            default => 'image/jpeg'
-        };
-    }
-
-    /**
-     * Obter imagem de uma URL externa
-     */
-    private function getImageFromUrl(string $url): ?string
-    {
-        try {
-            $ch = curl_init($url);
-            curl_setopt_array($ch, [
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_FOLLOWLOCATION => true,
-                CURLOPT_TIMEOUT => 10,
-                CURLOPT_SSL_VERIFYPEER => false,
-                CURLOPT_SSL_VERIFYHOST => false,
-                CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            ]);
-
-            $imageData = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $error = curl_error($ch);
-            curl_close($ch);
-
-            if ($imageData && $httpCode === 200) {
-                $mimeType = $this->detectMimeType($imageData, $url);
-                $base64 = 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
-                
-                Log::info('✅ Imagem carregada via URL', [
-                    'url' => $url,
-                    'http_code' => $httpCode,
-                    'mime' => $mimeType,
-                    'size' => strlen($imageData)
-                ]);
-                
-                return $base64;
-            }
-
-            Log::warning('⚠️ Falha ao carregar imagem via URL', [
-                'url' => $url,
-                'http_code' => $httpCode,
-                'error' => $error
-            ]);
-            
-            return null;
-
-        } catch (\Exception $e) {
-            Log::warning('⚠️ Erro ao obter imagem de URL', [
-                'url' => $url,
-                'erro' => $e->getMessage()
-            ]);
-            return null;
-        }
-    }
-
-    /**
-     * Converter valor para extenso (pode ser implementado depois)
-     */
-    public function valorParaExtenso($valor, $moeda = 'MZN')
-    {
-        // Implementação básica - pode ser expandida depois
-        if ($moeda === 'MZN') {
-            return number_format($valor, 2, ',', '.') . ' Meticais';
-        } elseif ($moeda === 'USD') {
-            return number_format($valor, 2, ',', '.') . ' Dólares Americanos';
-        } elseif ($moeda === 'ZAR') {
-            return number_format($valor, 2, ',', '.') . ' Rands';
-        }
-        
-        return number_format($valor, 2, ',', '.') . ' ' . $moeda;
     }
 }

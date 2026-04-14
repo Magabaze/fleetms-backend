@@ -1,359 +1,563 @@
+{{-- resources/views/pdf/comprovante-pagamento.blade.php --}}
 <!DOCTYPE html>
 <html lang="pt">
 <head>
     <meta charset="UTF-8">
-    <title>{{ $titulo }} - {{ $pagamento->motorista }}</title>
-
+    <title>Comprovante de Pagamento - {{ $pagamento->motorista ?? '—' }}</title>
     <style>
-        @page {
-            margin: 20px 30px;
-        }
-
-        body {
-            font-family: DejaVu Sans, Arial, Helvetica, sans-serif;
-            font-size: 11px;
+        /* RESET E CONFIGURAÇÕES BASE */
+        * {
             margin: 0;
             padding: 0;
-            color: #000;
+            box-sizing: border-box;
         }
-
+        
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 7pt;
+            line-height: 1.4;
+            color: #000;
+            background: #fff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 5mm;
+        }
+        
         .container {
             width: 100%;
+            max-width: 190mm;
+            margin: 0 auto;
+            padding: 3mm 4mm;
+            background: #fff;
         }
-
+        
+        /* CABEÇALHO */
         .header {
-            border-bottom: 2px solid #000;
-            padding-bottom: 10px;
-            margin-bottom: 20px;
-        }
-
-        .header-table {
+            display: table;
             width: 100%;
-            border-collapse: collapse;
+            margin-bottom: 4mm;
+            padding-bottom: 2mm;
+            border-bottom: 1.2pt solid #013334;
         }
-
-        .header-table td {
-            vertical-align: top;
+        
+        .header-cell {
+            display: table-cell;
+            vertical-align: middle;
         }
-
+        
         .logo {
-            width: 25%;
+            width: 45mm;
         }
-
+        
         .logo img {
-            max-height: 80px;
+            max-width: 40mm;
+            max-height: 18mm;
+            display: block;
         }
-
+        
         .company-info {
-            width: 50%;
-            text-align: center;
+            font-size: 7pt;
+            color: #5a5f6e;
+            line-height: 1.6;
         }
-
+        
         .company-name {
-            font-size: 16px;
+            font-size: 11pt;
             font-weight: bold;
-            color: {{ $cor }};
+            color: #013334;
+            margin-bottom: 1mm;
         }
-
-        .company-details {
-            font-size: 10px;
-            margin-top: 5px;
-            line-height: 1.4;
-        }
-
-        .doc-info {
-            width: 25%;
+        
+        .doc-meta {
             text-align: right;
-            font-size: 10px;
+            width: 55mm;
         }
-
+        
         .doc-title {
-            font-size: 14px;
+            font-size: 12pt;
             font-weight: bold;
-            margin-bottom: 5px;
+            color: #013334;
+            margin-bottom: 2mm;
             text-transform: uppercase;
+            letter-spacing: 0.3pt;
         }
-
-        .section {
-            margin-bottom: 15px;
-        }
-
-        .section-title {
+        
+        .doc-number {
+            font-size: 9pt;
             font-weight: bold;
-            border-bottom: 1px solid #000;
-            padding-bottom: 3px;
-            margin-bottom: 8px;
-            text-transform: uppercase;
+            color: #0f1116;
         }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 10px;
-        }
-
-        th {
-            background: #333;
-            color: #fff;
-            padding: 6px;
-            border: 1px solid #000;
-        }
-
-        td {
-            border: 1px solid #000;
-            padding: 6px;
-        }
-
-        .text-right {
-            text-align: right;
-        }
-
-        .total-box {
-            margin-top: 15px;
-            border: 1px solid #000;
-            padding: 10px;
-        }
-
-        .total-value {
-            font-size: 14px;
-            font-weight: bold;
-            text-align: right;
-        }
-
-        .valor-extenso {
-            font-style: italic;
-            font-size: 9px;
-            margin-top: 5px;
-        }
-
-        .obs-box {
-            border: 1px solid #000;
-            padding: 8px;
-            font-size: 10px;
-        }
-
-        .signatures {
-            margin-top: 50px;
-        }
-
-        .signature-table td {
-            width: 50%;
-            text-align: center;
-        }
-
-        .signature-line {
-            margin-top: 40px;
-            border-top: 1px solid #000;
-            padding-top: 5px;
-            font-size: 10px;
-        }
-
-        .footer {
-            margin-top: 40px;
-            font-size: 9px;
-            text-align: center;
-            border-top: 1px solid #ccc;
-            padding-top: 10px;
-            color: #555;
-        }
-
-        .watermark {
-            position: fixed;
-            top: 40%;
-            left: 20%;
-            font-size: 70px;
-            color: #eeeeee;
-            transform: rotate(-30deg);
-            z-index: -1;
-        }
-
+        
         .badge {
             display: inline-block;
-            padding: 3px 8px;
-            border-radius: 4px;
-            font-size: 9px;
+            padding: 1mm 3mm;
+            border-radius: 1mm;
+            font-size: 6.5pt;
             font-weight: bold;
+            text-transform: uppercase;
+            margin: 1mm 0;
+            background-color: #e8f0f0;
+            color: #013334;
+            border: 0.5pt solid #013334;
         }
-
-        .badge-credito {
-            background: #d1fae5;
-            color: #065f46;
+        
+        /* CONTEÚDO PRINCIPAL */
+        .content {
+            display: table;
+            width: 100%;
+            margin-bottom: 3mm;
         }
-
-        .badge-debito {
-            background: #fee2e2;
-            color: #991b1b;
+        
+        .column {
+            display: table-cell;
+            vertical-align: top;
+            padding: 0 2mm;
         }
-
-        .badge-pagamento {
-            background: #dbeafe;
-            color: #1e40af;
+        
+        .left-column {
+            width: 50%;
+            padding-left: 0;
+        }
+        
+        .right-column {
+            width: 50%;
+            padding-right: 0;
+        }
+        
+        /* SEÇÕES */
+        .section {
+            border: 0.5pt solid #e4e6ec;
+            margin-bottom: 3mm;
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }
+        
+        .section-title {
+            background: #013334;
+            color: white;
+            padding: 1.5mm 3mm;
+            font-size: 7.5pt;
+            font-weight: bold;
+            text-align: left;
+            text-transform: uppercase;
+            letter-spacing: 0.3pt;
+        }
+        
+        .section-content {
+            padding: 2mm 3mm;
+        }
+        
+        /* TABELAS */
+        .table-info {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 7pt;
+        }
+        
+        .table-info td {
+            padding: 1mm 0;
+            vertical-align: top;
+            border: none;
+        }
+        
+        .label {
+            font-weight: bold;
+            width: 35%;
+            color: #5a5f6e;
+            text-transform: uppercase;
+            font-size: 6.5pt;
+        }
+        
+        /* TABELA DE ITENS */
+        .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 6.5pt;
+            margin-top: 1mm;
+        }
+        
+        .items-table th {
+            background: #4a5568;
+            color: white;
+            padding: 1mm 2mm;
+            border: 0.5pt solid #000;
+            text-align: left;
+            font-weight: bold;
+            font-size: 6.5pt;
+            text-transform: uppercase;
+        }
+        
+        .items-table td {
+            border: 0.5pt solid #ddd;
+            padding: 1mm 2mm;
+            vertical-align: top;
+        }
+        
+        .items-table tbody tr:nth-child(even) {
+            background-color: #fafafa;
+        }
+        
+        /* TOTAIS */
+        .totals-box {
+            background: #f5f6f8;
+            border: 0.5pt solid #e4e6ec;
+            padding: 2mm 3mm;
+            margin: 3mm 0;
+        }
+        
+        .totals-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 7pt;
+        }
+        
+        .totals-table td {
+            padding: 0.8mm 0;
+            border: none;
+        }
+        
+        .totals-table tr:last-child td {
+            border-top: 0.5pt solid #013334;
+            padding-top: 1.5mm;
+            font-weight: bold;
+            font-size: 8pt;
+        }
+        
+        /* VALOR EXTENSO */
+        .valor-extenso {
+            background: #e8f0f0;
+            border-left: 3pt solid #013334;
+            padding: 2mm 3mm;
+            margin: 3mm 0;
+            font-style: italic;
+            font-size: 7pt;
+            color: #013334;
+        }
+        
+        /* OBSERVAÇÕES */
+        .obs-box {
+            border: 0.5pt dashed #e4e6ec;
+            background: #fafafa;
+            padding: 2mm 3mm;
+            margin: 3mm 0;
+        }
+        
+        .obs-label {
+            font-size: 6.5pt;
+            font-weight: bold;
+            text-transform: uppercase;
+            color: #5a5f6e;
+            margin-bottom: 1mm;
+        }
+        
+        /* ASSINATURAS */
+        .signatures {
+            display: table;
+            width: 100%;
+            margin-top: 4mm;
+            padding-top: 3mm;
+            border-top: 0.5pt solid #e4e6ec;
+        }
+        
+        .signature-box {
+            display: table-cell;
+            text-align: center;
+            width: 50%;
+        }
+        
+        .signature-line {
+            height: 12mm;
+            border-bottom: 0.5pt solid #9fa4b0;
+            margin: 1mm 5mm;
+        }
+        
+        .signature-label {
+            font-size: 6.5pt;
+            font-weight: bold;
+            margin-bottom: 0.5mm;
+            color: #5a5f6e;
+        }
+        
+        /* RODAPÉ */
+        .footer {
+            width: 100%;
+            text-align: center;
+            font-size: 6pt;
+            color: #9fa4b0;
+            padding-top: 2mm;
+            border-top: 0.5pt solid #e4e6ec;
+            margin-top: 3mm;
+        }
+        
+        .footer-brand {
+            font-weight: bold;
+            color: #013334;
+        }
+        
+        /* UTILITÁRIOS */
+        .bold { font-weight: bold; }
+        .text-right { text-align: right; }
+        .text-center { text-align: center; }
+        .text-muted { color: #9fa4b0; }
+        
+        /* MARCA D'ÁGUA */
+        @if(isset($copia) && $copia == 'true')
+        .watermark {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-45deg);
+            font-size: 80px;
+            color: rgba(1, 51, 52, 0.08);
+            z-index: -1;
+            text-transform: uppercase;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+        @endif
+        
+        /* EVITA QUEBRAS */
+        .section, .signatures, .totals-box, .valor-extenso, .obs-box {
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }
+        
+        @media print {
+            body {
+                margin: 0;
+                padding: 0;
+            }
+            .container {
+                padding: 2mm;
+            }
+            .items-table th {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
         }
     </style>
 </head>
-
 <body>
-<div class="container">
-
-    @if(isset($copia) && $copia == 'true')
-        <div class="watermark">CÓPIA</div>
-    @endif
-
-    <!-- ================= HEADER ================= -->
-    <div class="header">
-        <table class="header-table">
-            <tr>
-                <td class="logo">
-                    @if(isset($logo_empresa))
-                        <img src="{{ $logo_empresa }}">
-                    @endif
-                </td>
-
-                <td class="company-info">
-                    <div class="company-name">{{ $empresa->nome ?? 'EMPRESA' }}</div>
-                    <div class="company-details">
-                        @if($empresa->nif) NIF: {{ $empresa->nif }}<br>@endif
-                        @if($empresa->endereco) {{ $empresa->endereco }}<br>@endif
-                        @if($empresa->telefone) Tel: {{ $empresa->telefone }}<br>@endif
-                        @if($empresa->email) Email: {{ $empresa->email }}@endif
-                    </div>
-                </td>
-
-                <td class="doc-info">
-                    <div class="doc-title">{{ $titulo }}</div>
-                    Motorista: {{ $pagamento->motorista }}<br>
-                    Data: {{ $data_emissao }}
-                </td>
-            </tr>
-        </table>
-    </div>
-
-    <!-- ================= RESUMO DO PAGAMENTO ================= -->
-    <div class="section">
-        <div class="section-title">Resumo do Pagamento</div>
-        <table>
-            <tr>
-                <td><strong>Tipo de Pagamento:</strong> {{ $pagamento->tipo_pagamento }}</td>
-                <td><strong>Data:</strong> {{ $data_pagamento }}</td>
-            </tr>
-            <tr>
-                <td><strong>Valor Pago:</strong> {{ $valor_formatado }} MZN</td>
-                <td><strong>Desconto Aplicado:</strong> {{ $desconto_formatado }} MZN</td>
-            </tr>
-        </table>
-    </div>
-
-    <!-- ================= BÓNUS ================= -->
-    <div class="section">
-        <div class="section-title">Bónus</div>
-        <table>
-            <thead>
-                <tr>
-                    <th>Data</th>
-                    <th>Descrição</th>
-                    <th class="text-right">Valor</th>
-                </tr>
-            </thead>
-            <tbody>
-                @forelse($bonus as $b)
-                <tr>
-                    <td>{{ date('d/m/Y', strtotime($b->created_at)) }}</td>
-                    <td>{{ $b->descricao }}</td>
-                    <td class="text-right">{{ number_format($b->valor, 2, ',', '.') }} MZN</td>
-                </tr>
-                @empty
-                <tr>
-                    <td colspan="3" class="text-center">Nenhum bónus encontrado</td>
-                </tr>
-                @endforelse
-                <tr>
-                    <td colspan="2" class="text-right"><strong>Total Bónus:</strong></td>
-                    <td class="text-right"><strong>{{ $total_bonus }} MZN</strong></td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-
-    <!-- ================= DESCONTOS ================= -->
-    <div class="section">
-        <div class="section-title">Descontos</div>
-        <table>
-            <thead>
-                <tr>
-                    <th>Data</th>
-                    <th>Tipo</th>
-                    <th>Descrição</th>
-                    <th class="text-right">Valor</th>
-                </tr>
-            </thead>
-            <tbody>
-                @forelse($descontos as $d)
-                <tr>
-                    <td>{{ date('d/m/Y', strtotime($d->data_desconto)) }}</td>
-                    <td>{{ $d->tipo }}</td>
-                    <td>{{ $d->descricao }}</td>
-                    <td class="text-right">{{ number_format($d->valor, 2, ',', '.') }} MZN</td>
-                </tr>
-                @empty
-                <tr>
-                    <td colspan="4" class="text-center">Nenhum desconto encontrado</td>
-                </tr>
-                @endforelse
-                <tr>
-                    <td colspan="3" class="text-right"><strong>Total Descontos:</strong></td>
-                    <td class="text-right"><strong>{{ $total_descontos }} MZN</strong></td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-
-    <!-- ================= VALOR POR EXTENSO ================= -->
-    <div class="total-box">
-        <div class="total-value">
-            {{ $valor_formatado }} MZN
-        </div>
-        <div class="valor-extenso">
-            <strong>Valor por extenso:</strong> {{ $valor_extenso }}
-        </div>
-    </div>
-
-    <!-- ================= OBS ================= -->
-    @if($pagamento->observacoes)
-        <div class="section">
-            <div class="section-title">Observações</div>
-            <div class="obs-box">
-                {{ $pagamento->observacoes }}
+    <div class="container">
+        
+        @if(isset($copia) && $copia == 'true')
+            <div class="watermark">CÓPIA</div>
+        @endif
+        
+        <!-- CABEÇALHO -->
+        <div class="header">
+            <div class="header-cell logo">
+                @if($logo_empresa)
+                    <img src="{{ $logo_empresa }}" alt="Logo">
+                @endif
+                <div class="company-name">{{ $empresa->nome ?? 'Transportes ABC' }}</div>
+                <div class="company-info">
+                    NIF: {{ $empresa->nif ?? '400123456' }}<br>
+                    {{ $empresa->endereco ?? 'Av. Principal, 123 — Maputo' }}<br>
+                    {{ $empresa->telefone ?? '+258 84 123 4567' }} · {{ $empresa->email ?? 'geral@transportes.co.mz' }}
+                </div>
+            </div>
+            
+            <div class="header-cell doc-meta">
+                <div class="doc-title">COMPROVANTE DE PAGAMENTO</div>
+                <div class="doc-number">Motorista: {{ $pagamento->motorista ?? '—' }}</div>
+                <div>
+                    <span class="badge">{{ isset($copia) && $copia == 'true' ? 'CÓPIA' : 'ORIGINAL' }}</span>
+                </div>
+                <div style="margin-top: 1mm;">
+                    <strong>Data:</strong> {{ $data_pagamento ?? date('d/m/Y') }}
+                </div>
             </div>
         </div>
-    @endif
-
-    <!-- ================= ASSINATURAS ================= -->
-    <div class="signatures">
-        <table class="signature-table">
-            <tr>
-                <td>
-                    <div class="signature-line">
-                        Assinatura do Motorista<br>
-                        {{ $pagamento->motorista }}
+        
+        <!-- CONTEÚDO PRINCIPAL -->
+        <div class="content">
+            
+            <!-- COLUNA ESQUERDA -->
+            <div class="column left-column">
+                
+                <!-- RESUMO DO PAGAMENTO -->
+                <div class="section">
+                    <div class="section-title">Resumo do Pagamento</div>
+                    <div class="section-content">
+                        <table class="table-info">
+                            <tr>
+                                <td class="label">Tipo de Pagamento</td>
+                                <td class="bold">{{ $pagamento->tipo_pagamento ?? '—' }}</td>
+                            </tr>
+                            <tr>
+                                <td class="label">Data</td>
+                                <td>{{ $data_pagamento ?? '—' }}</td>
+                            </tr>
+                            <tr>
+                                <td class="label">Valor Pago</td>
+                                <td class="bold">{{ $valor_formatado }} MZN</td>
+                            </tr>
+                            <tr>
+                                <td class="label">Desconto Aplicado</td>
+                                <td>{{ $desconto_formatado }} MZN</td>
+                            </tr>
+                        </table>
                     </div>
-                </td>
-                <td>
-                    <div class="signature-line">
-                        Assinatura do Responsável<br>
-                        {{ $usuario }}
+                </div>
+                
+            </div>
+            
+            <!-- COLUNA DIREITA -->
+            <div class="column right-column">
+                
+                <!-- TOTAIS -->
+                <div class="section">
+                    <div class="section-title">Resumo de Valores</div>
+                    <div class="section-content">
+                        <table class="table-info">
+                            <tr>
+                                <td class="label">Total Bónus</td>
+                                <td>{{ $total_bonus }} MZN</td>
+                            </tr>
+                            <tr>
+                                <td class="label">Total Descontos</td>
+                                <td>{{ $total_descontos }} MZN</td>
+                            </tr>
+                            <tr>
+                                <td class="label">Valor Líquido</td>
+                                <td class="bold">{{ $valor_formatado }} MZN</td>
+                            </tr>
+                        </table>
                     </div>
-                </td>
-            </tr>
-        </table>
+                </div>
+                
+            </div>
+            
+        </div>
+        
+        <!-- BÓNUS -->
+        <div class="section">
+            <div class="section-title">Bónus</div>
+            <div class="section-content">
+                <table class="items-table">
+                    <thead>
+                        <tr>
+                            <th>DATA</th>
+                            <th>DESCRIÇÃO</th>
+                            <th class="text-right">VALOR</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @forelse($bonus as $b)
+                        <tr>
+                            <td>{{ $b->created_at ? date('d/m/Y', strtotime($b->created_at)) : '—' }}</td>
+                            <td>{{ $b->descricao ?? '—' }}</td>
+                            <td class="text-right">{{ number_format($b->valor ?? 0, 2, ',', '.') }} MZN</td>
+                        </tr>
+                        @empty
+                        <tr>
+                            <td colspan="3" class="text-center text-muted">Nenhum bónus encontrado</td>
+                        </tr>
+                        @endforelse
+                        @if($bonus->count() > 0)
+                        <tr style="background: #f0f0f0; font-weight: bold;">
+                            <td colspan="2" class="text-right">Total Bónus:</td>
+                            <td class="text-right">{{ $total_bonus }} MZN</td>
+                        </tr>
+                        @endif
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- DESCONTOS -->
+        <div class="section">
+            <div class="section-title">Descontos</div>
+            <div class="section-content">
+                <table class="items-table">
+                    <thead>
+                        <tr>
+                            <th>DATA</th>
+                            <th>TIPO</th>
+                            <th>DESCRIÇÃO</th>
+                            <th class="text-right">VALOR</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @forelse($descontos as $d)
+                        <tr>
+                            <td>{{ $d->data_desconto ? date('d/m/Y', strtotime($d->data_desconto)) : '—' }}</td>
+                            <td>{{ $d->tipo ?? '—' }}</td>
+                            <td>{{ $d->descricao ?? '—' }}</td>
+                            <td class="text-right">{{ number_format($d->valor ?? 0, 2, ',', '.') }} MZN</td>
+                        </tr>
+                        @empty
+                        <tr>
+                            <td colspan="4" class="text-center text-muted">Nenhum desconto encontrado</td>
+                        </tr>
+                        @endforelse
+                        @if($descontos->count() > 0)
+                        <tr style="background: #f0f0f0; font-weight: bold;">
+                            <td colspan="3" class="text-right">Total Descontos:</td>
+                            <td class="text-right">{{ $total_descontos }} MZN</td>
+                        </tr>
+                        @endif
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- TOTAIS -->
+        <div class="totals-box">
+            <table class="totals-table">
+                <tr>
+                    <td>Valor Total Pago:</td>
+                    <td class="text-right"><strong>{{ $valor_formatado }} MZN</strong></td>
+                </tr>
+            </table>
+        </div>
+        
+        <!-- VALOR EXTENSO -->
+        @if(isset($valor_extenso) && $valor_extenso)
+        <div class="valor-extenso">
+            <strong>Valor por extenso:</strong> {{ ucfirst($valor_extenso) }}
+        </div>
+        @endif
+        
+        <!-- OBSERVAÇÕES -->
+        @if($pagamento->observacoes)
+        <div class="obs-box">
+            <div class="obs-label">Observações</div>
+            <div>{{ $pagamento->observacoes }}</div>
+        </div>
+        @endif
+        
+        <!-- ASSINATURAS -->
+        <div class="signatures">
+            <div class="signature-box">
+                <div class="signature-label">Assinatura do Motorista</div>
+                <div class="signature-line"></div>
+                <div class="text-muted">{{ $pagamento->motorista ?? '—' }}</div>
+            </div>
+            
+            <div class="signature-box">
+                <div class="signature-label">Assinatura do Responsável</div>
+                <div class="signature-line"></div>
+                <div class="text-muted">{{ $usuario ?? '—' }}</div>
+            </div>
+        </div>
+        
+        <!-- RODAPÉ -->
+        <div class="footer">
+            <div>
+                Documento processado por computador · Válido sem assinatura<br>
+                Emissão: {{ $current_date ?? date('d/m/Y H:i:s') }} · Operador: {{ $usuario ?? 'Sistema' }}
+            </div>
+            <div style="margin-top: 1mm;">
+                <span class="footer-brand">{{ config('app.name', 'SGT') }}</span><br>
+                Sistema de Gestão de Transportes
+            </div>
+        </div>
+        
     </div>
-
-    <!-- ================= FOOTER ================= -->
-    <div class="footer">
-        Documento processado por computador |
-        Emitido por: {{ $usuario }} |
-        Data/Hora: {{ $current_date }}
-    </div>
-
-</div>
 </body>
 </html>

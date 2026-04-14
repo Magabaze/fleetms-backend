@@ -35,14 +35,13 @@ class ClienteController extends Controller
             'pais' => $cliente->pais,
             'observacoes' => $cliente->observacoes,
             'criadoPor' => $cliente->criado_por,
-            'createdAt' => $cliente->created_at->toISOString(),
-            'updatedAt' => $cliente->updated_at->toISOString()
+            'createdAt' => $cliente->created_at ? $cliente->created_at->toISOString() : null,
+            'updatedAt' => $cliente->updated_at ? $cliente->updated_at->toISOString() : null
         ];
     }
 
     /**
      * Lista clientes com paginação e filtros.
-     * O filtro por tipo é feito no banco de dados para garantir performance e paginação corretas.
      */
     public function index(Request $request)
     {
@@ -64,7 +63,7 @@ class ClienteController extends Controller
                 });
             }
 
-            // Filtro por tipo de cliente (otimizado no DB)
+            // Filtro por tipo de cliente
             if ($request->filled('tipo') && $request->tipo !== 'todos') {
                 $query->where('tipo_cliente', $request->tipo);
             }
@@ -87,27 +86,66 @@ class ClienteController extends Controller
             
         } catch (\Exception $e) {
             Log::error('Erro ao listar clientes: ' . $e->getMessage());
-            return response()->json(['success' => false, 'error' => 'Erro interno no servidor'], 500);
+            Log::error('Trace: ' . $e->getTraceAsString());
+            return response()->json(['success' => false, 'error' => 'Erro interno no servidor: ' . $e->getMessage()], 500);
         }
     }
 
+    /**
+     * Exibe um cliente específico
+     */
+    public function show($id)
+    {
+        $user = Auth::user();
+        $tenantId = $user->tenant_id ?? 'default';
+        
+        $cliente = Cliente::where('tenant_id', $tenantId)->find($id);
+        if (!$cliente) {
+            return response()->json(['success' => false, 'error' => 'Cliente não encontrado'], 404);
+        }
+        
+        return response()->json([
+            'success' => true,
+            'data' => $this->formatarParaFrontend($cliente)
+        ]);
+    }
+
+    /**
+     * Cria um novo cliente
+     */
     public function store(Request $request)
     {
         $user = Auth::user();
         $tenantId = $user->tenant_id ?? 'default';
         
+        Log::info('Dados recebidos para criar cliente:', $request->all());
+        
+        // Validação - NUIT NÃO É OBRIGATÓRIO
         $validator = Validator::make($request->all(), [
             'nomeEmpresa' => 'required|string|max:255',
             'tipoCliente' => 'required|in:Consignee,Shipper,Invoice Party',
-            'nuitNif' => 'required|string|size:9|unique:clientes,nuit_nif,NULL,id,tenant_id,' . $tenantId,
-            'email' => 'nullable|email|unique:clientes,email,NULL,id,tenant_id,' . $tenantId,
+            'nuitNif' => 'nullable|string|max:255',
+            'email' => 'nullable|email|max:255',
+            'telefone' => 'nullable|string|max:20',
+            'pessoaContato' => 'nullable|string|max:255',
+            'endereco' => 'nullable|string|max:500',
+            'iva' => 'nullable|string|max:50',
+            'pais' => 'nullable|string|max:100',
+            'observacoes' => 'nullable|string',
         ], [
-            'nuitNif.unique' => 'Já existe um cliente com este NUIT/NIF.',
-            'nuitNif.size' => 'NUIT/NIF deve ter exatamente 9 dígitos.',
+            'nomeEmpresa.required' => 'O nome da empresa é obrigatório.',
+            'tipoCliente.required' => 'O tipo de cliente é obrigatório.',
+            'tipoCliente.in' => 'Tipo de cliente inválido. Use: Consignee, Shipper ou Invoice Party',
+            'email.email' => 'O email informado não é válido.',
         ]);
         
         if ($validator->fails()) {
-            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+            Log::warning('Validação falhou ao criar cliente:', $validator->errors()->toArray());
+            return response()->json([
+                'success' => false,
+                'message' => 'Erro de validação',
+                'errors' => $validator->errors()
+            ], 422);
         }
         
         try {
@@ -118,13 +156,15 @@ class ClienteController extends Controller
                 'telefone' => $request->telefone ?? '',
                 'email' => $request->email ?? '',
                 'endereco' => $request->endereco ?? '',
-                'nuit_nif' => $request->nuitNif,
+                'nuit_nif' => $request->nuitNif ?? '',
                 'iva' => $request->iva ?? '',
                 'pais' => $request->pais ?? 'Moçambique',
                 'observacoes' => $request->observacoes ?? '',
                 'criado_por' => $user->name ?? 'Sistema',
                 'tenant_id' => $tenantId,
             ]);
+            
+            Log::info('Cliente criado com sucesso:', ['id' => $cliente->id]);
             
             return response()->json([
                 'success' => true,
@@ -134,51 +174,92 @@ class ClienteController extends Controller
             
         } catch (\Exception $e) {
             Log::error('Erro ao criar cliente: ' . $e->getMessage());
-            return response()->json(['success' => false, 'error' => 'Erro ao processar solicitação'], 500);
+            Log::error('Trace: ' . $e->getTraceAsString());
+            return response()->json([
+                'success' => false,
+                'error' => 'Erro ao processar solicitação: ' . $e->getMessage()
+            ], 500);
         }
     }
 
+    /**
+     * Atualiza um cliente existente
+     */
     public function update(Request $request, $id)
     {
         $user = Auth::user();
         $tenantId = $user->tenant_id ?? 'default';
+        
+        Log::info("Atualizando cliente ID: {$id}", $request->all());
         
         $cliente = Cliente::where('tenant_id', $tenantId)->find($id);
         if (!$cliente) {
             return response()->json(['success' => false, 'error' => 'Cliente não encontrado'], 404);
         }
 
+        // Validação - NUIT NÃO É OBRIGATÓRIO
         $validator = Validator::make($request->all(), [
-            'nomeEmpresa' => 'required|string|max:255',
-            'tipoCliente' => 'required|in:Consignee,Shipper,Invoice Party',
-            'nuitNif' => 'required|string|size:9|unique:clientes,nuit_nif,' . $id . ',id,tenant_id,' . $tenantId,
-            'email' => 'nullable|email|unique:clientes,email,' . $id . ',id,tenant_id,' . $tenantId,
+            'nomeEmpresa' => 'sometimes|string|max:255',
+            'tipoCliente' => 'sometimes|in:Consignee,Shipper,Invoice Party',
+            'nuitNif' => 'nullable|string|max:255',
+            'email' => 'nullable|email|max:255',
+            'telefone' => 'nullable|string|max:20',
+            'pessoaContato' => 'nullable|string|max:255',
+            'endereco' => 'nullable|string|max:500',
+            'iva' => 'nullable|string|max:50',
+            'pais' => 'nullable|string|max:100',
+            'observacoes' => 'nullable|string',
         ]);
         
         if ($validator->fails()) {
-            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+            Log::warning('Validação falhou ao atualizar cliente:', $validator->errors()->toArray());
+            return response()->json([
+                'success' => false,
+                'message' => 'Erro de validação',
+                'errors' => $validator->errors()
+            ], 422);
         }
         
-        $cliente->update([
-            'nome_empresa' => $request->nomeEmpresa,
-            'tipo_cliente' => $request->tipoCliente,
-            'pessoa_contato' => $request->pessoaContato,
-            'telefone' => $request->telefone,
-            'email' => $request->email,
-            'endereco' => $request->endereco,
-            'nuit_nif' => $request->nuitNif,
-            'iva' => $request->iva,
-            'pais' => $request->pais,
-            'observacoes' => $request->observacoes,
-        ]);
-        
-        return response()->json([
-            'success' => true,
-            'data' => $this->formatarParaFrontend($cliente->fresh()),
-            'message' => 'Cliente atualizado com sucesso!'
-        ]);
+        try {
+            // Atualizar apenas os campos fornecidos
+            $updateData = [];
+            
+            if ($request->has('nomeEmpresa')) $updateData['nome_empresa'] = $request->nomeEmpresa;
+            if ($request->has('tipoCliente')) $updateData['tipo_cliente'] = $request->tipoCliente;
+            if ($request->has('pessoaContato')) $updateData['pessoa_contato'] = $request->pessoaContato ?? '';
+            if ($request->has('telefone')) $updateData['telefone'] = $request->telefone ?? '';
+            if ($request->has('email')) $updateData['email'] = $request->email ?? '';
+            if ($request->has('endereco')) $updateData['endereco'] = $request->endereco ?? '';
+            if ($request->has('nuitNif')) $updateData['nuit_nif'] = $request->nuitNif ?? '';
+            if ($request->has('iva')) $updateData['iva'] = $request->iva ?? '';
+            if ($request->has('pais')) $updateData['pais'] = $request->pais ?? 'Moçambique';
+            if ($request->has('observacoes')) $updateData['observacoes'] = $request->observacoes ?? '';
+            
+            Log::info('Dados a serem atualizados:', $updateData);
+            
+            $cliente->update($updateData);
+            
+            Log::info('Cliente atualizado com sucesso:', ['id' => $cliente->id]);
+            
+            return response()->json([
+                'success' => true,
+                'data' => $this->formatarParaFrontend($cliente->fresh()),
+                'message' => 'Cliente atualizado com sucesso!'
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('Erro ao atualizar cliente: ' . $e->getMessage());
+            Log::error('Trace: ' . $e->getTraceAsString());
+            return response()->json([
+                'success' => false,
+                'error' => 'Erro ao processar solicitação: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
+    /**
+     * Remove um cliente
+     */
     public function destroy($id)
     {
         $user = Auth::user();
@@ -189,7 +270,22 @@ class ClienteController extends Controller
             return response()->json(['success' => false, 'error' => 'Cliente não encontrado'], 404);
         }
         
-        $cliente->delete();
-        return response()->json(['success' => true, 'message' => 'Cliente excluído com sucesso!']);
+        try {
+            $cliente->delete();
+            
+            Log::info('Cliente excluído com sucesso:', ['id' => $id]);
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Cliente excluído com sucesso!'
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Erro ao excluir cliente: ' . $e->getMessage());
+            Log::error('Trace: ' . $e->getTraceAsString());
+            return response()->json([
+                'success' => false,
+                'error' => 'Erro ao excluir cliente: ' . $e->getMessage()
+            ], 500);
+        }
     }
 }

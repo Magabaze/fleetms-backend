@@ -7,7 +7,7 @@ use App\Models\Ordem;
 use App\Models\Cliente;
 use App\Models\Container;
 use App\Models\BreakBulkItem;
-use App\Models\Viagem;
+use App\Models\Rate;
 use App\Models\EmpresaCodigo;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -22,20 +22,16 @@ class OrdemController extends Controller
         $this->middleware('auth:sanctum');
     }
 
-    // Função auxiliar para obter tenant_id
     private function getTenantId()
     {
         $user = Auth::user();
         return $user->tenant_id ?? 'default';
     }
 
-    // Obter prefixo da empresa (com fallback automático)
     private function getOuCriarPrefixoEmpresa($tenantId)
     {
-        // Primeiro tenta buscar prefixo existente
         $prefixo = $this->getPrefixoEmpresa($tenantId);
         
-        // Se não tem, tenta criar automaticamente
         if (!$prefixo) {
             Log::warning('⚠️ Empresa sem prefixo, tentando criar automaticamente...', [
                 'tenant_id' => $tenantId
@@ -47,72 +43,61 @@ class OrdemController extends Controller
         return $prefixo;
     }
 
-    // Buscar prefixo existente
     private function getPrefixoEmpresa($tenantId)
     {
         $empresaCodigo = EmpresaCodigo::where('tenant_id', $tenantId)
             ->where('is_active', true)
             ->first();
         
-        if (!$empresaCodigo) {
+        return $empresaCodigo ? $empresaCodigo->codigo_prefixo : null;
+    }
+
+    private function criarPrefixoAutomatico($tenantId)
+    {
+        try {
+            $empresa = \App\Models\Empresa::where('tenant_id', $tenantId)->first();
+            
+            if ($empresa) {
+                $empresaCodigo = EmpresaCodigo::gerarParaEmpresa(
+                    $tenantId, 
+                    $empresa->nome
+                );
+                
+                if ($empresaCodigo) {
+                    Log::info('✅ Prefixo criado automaticamente', [
+                        'tenant_id' => $tenantId,
+                        'empresa_nome' => $empresa->nome,
+                        'prefixo' => $empresaCodigo->codigo_prefixo
+                    ]);
+                    
+                    return $empresaCodigo->codigo_prefixo;
+                }
+            }
+            
+            $fallbackPrefix = 'EMP' . substr(str_pad($tenantId, 3, '0', STR_PAD_LEFT), -3);
+            
+            EmpresaCodigo::create([
+                'tenant_id' => $tenantId,
+                'codigo_prefixo' => $fallbackPrefix,
+                'descricao' => 'Criado automaticamente (fallback)',
+                'is_active' => true,
+            ]);
+            
+            Log::warning('⚠️ Usando prefixo de fallback', [
+                'tenant_id' => $tenantId,
+                'prefixo' => $fallbackPrefix
+            ]);
+            
+            return $fallbackPrefix;
+            
+        } catch (\Exception $e) {
+            Log::error('❌ Falha ao criar prefixo automático: ' . $e->getMessage(), [
+                'tenant_id' => $tenantId
+            ]);
             return null;
         }
-        
-        return $empresaCodigo->codigo_prefixo;
     }
 
-    // Criar prefixo automático se não existir
-    private function criarPrefixoAutomatico($tenantId)
-{
-    try {
-        // Buscar empresa pelo tenant_id
-        $empresa = \App\Models\Empresa::where('tenant_id', $tenantId)->first();
-        
-        if ($empresa) {
-            // Usar lógica do Model EmpresaCodigo para criar
-            $empresaCodigo = EmpresaCodigo::gerarParaEmpresa(
-                $tenantId, 
-                $empresa->nome
-            );
-            
-            if ($empresaCodigo) {
-                Log::info('✅ Prefixo criado automaticamente', [
-                    'tenant_id' => $tenantId,
-                    'empresa_nome' => $empresa->nome,
-                    'prefixo' => $empresaCodigo->codigo_prefixo
-                ]);
-                
-                return $empresaCodigo->codigo_prefixo;
-            }
-        }
-        
-        // Fallback: usar tenant_id como prefixo (último recurso)
-        $fallbackPrefix = 'EMP' . substr(str_pad($tenantId, 3, '0', STR_PAD_LEFT), -3);
-        
-        // Criar registro de fallback
-        EmpresaCodigo::create([
-            'tenant_id' => $tenantId,
-            'codigo_prefixo' => $fallbackPrefix,
-            'descricao' => 'Criado automaticamente (fallback)',
-            'is_active' => true,
-        ]);
-        
-        Log::warning('⚠️ Usando prefixo de fallback', [
-            'tenant_id' => $tenantId,
-            'prefixo' => $fallbackPrefix
-        ]);
-        
-        return $fallbackPrefix;
-        
-    } catch (\Exception $e) {
-        Log::error('❌ Falha ao criar prefixo automático: ' . $e->getMessage(), [
-            'tenant_id' => $tenantId
-        ]);
-        return null;
-    }
-}
-
-    // Gerar número da ordem com 4 dígitos (0001)
     private function gerarNumeroOrdem($tenantId)
     {
         try {
@@ -128,7 +113,6 @@ class OrdemController extends Controller
                 'tenant_id' => $tenantId
             ]);
             
-            // Buscar última ordem desta empresa (com o mesmo prefixo)
             $lastOrder = Ordem::where('tenant_id', $tenantId)
                 ->where('order_numero', 'like', $prefixo . '-%')
                 ->orderBy('created_at', 'desc')
@@ -136,26 +120,17 @@ class OrdemController extends Controller
             
             $nextNumber = 1;
             if ($lastOrder) {
-                // Extrair número da última ordem (formato: XX-0001)
                 $parts = explode('-', $lastOrder->order_numero);
                 if (count($parts) === 2) {
                     $lastNumber = (int) $parts[1];
                     $nextNumber = $lastNumber + 1;
-                    Log::info('🔢 Último número encontrado', [
-                        'order_numero' => $lastOrder->order_numero,
-                        'last_number' => $lastNumber,
-                        'next_number' => $nextNumber
-                    ]);
                 }
             }
             
-            // Gerar número no formato XX-0001 (4 dígitos)
             $orderNumero = $prefixo . '-' . str_pad($nextNumber, 4, '0', STR_PAD_LEFT);
             
-            // Verificar se não existe (segurança extra)
             $tentativas = 0;
             while (Ordem::where('tenant_id', $tenantId)->where('order_numero', $orderNumero)->exists() && $tentativas < 10) {
-                Log::warning('⚠️ Número duplicado, tentando próximo', ['order_numero' => $orderNumero]);
                 $nextNumber++;
                 $orderNumero = $prefixo . '-' . str_pad($nextNumber, 4, '0', STR_PAD_LEFT);
                 $tentativas++;
@@ -163,9 +138,7 @@ class OrdemController extends Controller
             
             Log::info('✅ Número da ordem final', [
                 'order_numero' => $orderNumero,
-                'tentativas' => $tentativas,
-                'tenant_id' => $tenantId,
-                'formato' => '4 dígitos (0001)'
+                'tenant_id' => $tenantId
             ]);
             
             return $orderNumero;
@@ -176,7 +149,34 @@ class OrdemController extends Controller
         }
     }
 
-    // Converter para camelCase
+    private function getPesoContainer($tipoRecipiente)
+    {
+        $pesos = [
+            'Container 20" Dry' => 2.2,
+            'Container 40" Dry' => 3.7,
+            'Container 20" Reefer' => 2.8,
+            'Container 40" Reefer' => 4.5,
+            'Container 20" Open Top' => 2.3,
+            'Container 40" Open Top' => 3.9,
+            'Container 20" Flat Rack' => 2.4,
+            'Container 40" Flat Rack' => 4.1
+        ];
+        
+        return $pesos[$tipoRecipiente] ?? 0;
+    }
+    
+    private function converterPesoParaToneladas($peso, $unidade)
+    {
+        switch ($unidade) {
+            case 'EM KILOGRAMS':
+                return $peso / 1000;
+            case 'EM LIBRAS':
+                return $peso / 2204.62;
+            default:
+                return $peso;
+        }
+    }
+
     private function paraCamelCase($ordem)
     {
         return [
@@ -221,6 +221,16 @@ class OrdemController extends Controller
             'aprovadoPor' => $ordem->aprovado_por,
             'empresa' => $ordem->empresa,
             'tenantId' => $ordem->tenant_id,
+            'rateId' => $ordem->rate_id,
+            'rate' => $ordem->rate ? [
+                'id' => $ordem->rate->id,
+                'clienteNome' => $ordem->rate->cliente_nome,
+                'moeda' => $ordem->rate->moeda,
+                'validade' => $ordem->rate->validade,
+                'status' => $ordem->rate->status,
+                'distanciaRota' => $ordem->rate->distancia_rota,
+                'criadoPor' => $ordem->rate->criado_por,
+            ] : null,
             'containers' => $ordem->containers ? $ordem->containers->map(function ($container) {
                 return [
                     'id' => $container->id,
@@ -229,16 +239,12 @@ class OrdemController extends Controller
                     'tipoCarga' => $container->tipo_carga,
                     'unidade' => $container->unidade,
                     'pesoLiquido' => $container->peso_liquido,
-                    'pesoContainer' => $container->peso_container,
                     'pesoTotal' => $container->peso_total,
-                    'status' => $container->status,
-                    'isAvailable' => $container->is_available,
                     'selo' => $container->selo,
                     'aterramentoRef' => $container->aterramento_ref,
                     'dataValidadeDO' => $container->data_validade_do,
                     'dropOffDetails' => $container->drop_off_details,
                     'depositoContentores' => $container->deposito_contentores,
-                    'createdAt' => $container->created_at ? $container->created_at->toISOString() : null,
                 ];
             }) : [],
             'breakBulkItems' => $ordem->breakBulkItems ? $ordem->breakBulkItems->map(function ($item) {
@@ -249,10 +255,6 @@ class OrdemController extends Controller
                     'unidadesEmbalagem' => $item->unidades_embalagem,
                     'pesoPorUnidade' => $item->peso_por_unidade,
                     'pesoTotal' => $item->peso_total,
-                    'pesoUtilizado' => $item->peso_utilizado,
-                    'quantidadeUtilizada' => $item->quantidade_utilizada,
-                    'status' => $item->status,
-                    'createdAt' => $item->created_at ? $item->created_at->toISOString() : null,
                 ];
             }) : [],
             'createdAt' => $ordem->created_at->toISOString(),
@@ -260,498 +262,12 @@ class OrdemController extends Controller
         ];
     }
 
-    // Função para obter peso do container baseado no tipo
-    private function getPesoContainer($tipoRecipiente)
-    {
-        $pesos = [
-            'Container 20" Dry' => 2.2,
-            'Container 40" Dry' => 3.7,
-            'Container 20" Reefer' => 2.8,
-            'Container 40" Reefer' => 4.5,
-            'Container 20" Open Top' => 2.3,
-            'Container 40" Open Top' => 3.9,
-            'Container 20" Flat Rack' => 2.4,
-            'Container 40" Flat Rack' => 4.1
-        ];
-        
-        return $pesos[$tipoRecipiente] ?? 0;
-    }
-    
-    // Função para converter peso para toneladas
-    private function converterPesoParaToneladas($peso, $unidade)
-    {
-        switch ($unidade) {
-            case 'EM KILOGRAMS':
-                return $peso / 1000;
-            case 'EM LIBRAS':
-                return $peso / 2204.62;
-            default:
-                return $peso; // Já está em toneladas
-        }
-    }
-
-    // ========== MÉTODOS PARA VIAGENS ==========
-
-    /**
-     * Buscar containers disponíveis de uma ordem específica
-     */
-    public function containersDisponiveis($ordemId)
-    {
-        try {
-            Log::info('📦 [API] Buscando containers disponíveis para ordem:', ['ordem_id' => $ordemId]);
-            
-            $tenantId = $this->getTenantId();
-            
-            $ordem = Ordem::where('tenant_id', $tenantId)->find($ordemId);
-            
-            if (!$ordem) {
-                Log::warning('⚠️ Ordem não encontrada:', ['ordem_id' => $ordemId]);
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Ordem não encontrada'
-                ], 404);
-            }
-            
-            $containers = Container::where('ordem_id', $ordemId)
-                ->where('tenant_id', $tenantId)
-                ->where('is_available', true)
-                ->where('status', '!=', 'loaded')
-                ->get();
-            
-            $containersFormatados = $containers->map(function ($container) {
-                return [
-                    'id' => $container->id,
-                    'numero_container' => $container->numero_container,
-                    'tipo_recipiente' => $container->tipo_recipiente,
-                    'tipo_carga' => $container->tipo_carga,
-                    'peso_liquido' => $container->peso_liquido,
-                    'peso_container' => $container->peso_container,
-                    'peso_total' => $container->peso_total,
-                    'status' => $container->status,
-                    'is_available' => $container->is_available,
-                    'ordem_id' => $container->ordem_id,
-                    'selo' => $container->selo,
-                    'aterramento_ref' => $container->aterramento_ref,
-                    'data_validade_do' => $container->data_validade_do,
-                    'drop_off_details' => $container->drop_off_details,
-                    'deposito_contentores' => $container->deposito_contentores,
-                    'created_at' => $container->created_at,
-                ];
-            });
-            
-            Log::info('✅ Containers disponíveis encontrados:', [
-                'ordem_id' => $ordemId,
-                'count' => $containersFormatados->count(),
-                'tenant_id' => $tenantId
-            ]);
-            
-            return response()->json([
-                'success' => true,
-                'data' => $containersFormatados
-            ]);
-            
-        } catch (\Exception $e) {
-            Log::error('❌ Erro ao buscar containers disponíveis: ' . $e->getMessage());
-            Log::error('❌ Stack trace: ' . $e->getTraceAsString());
-            return response()->json([
-                'success' => false,
-                'error' => 'Erro interno: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Buscar break bulk disponível de uma ordem específica
-     */
-    public function breakBulkDisponivel($ordemId)
-    {
-        try {
-            Log::info('📦 [API] Buscando break bulk disponível para ordem:', ['ordem_id' => $ordemId]);
-            
-            $tenantId = $this->getTenantId();
-            
-            $breakBulkItems = BreakBulkItem::where('ordem_id', $ordemId)
-                ->where('tenant_id', $tenantId)
-                ->where('status', '!=', 'completed')
-                ->get();
-            
-            $disponibilidade = $breakBulkItems->map(function ($item) {
-                $pesoDisponivel = max(0, $item->peso_total - $item->peso_utilizado);
-                $quantidadeDisponivel = max(0, $item->quantidade - $item->quantidade_utilizada);
-                
-                return [
-                    'id' => $item->id,
-                    'tipo_embalagem' => $item->tipo_embalagem,
-                    'quantidade_total' => $item->quantidade,
-                    'quantidade_disponivel' => $quantidadeDisponivel,
-                    'peso_por_unidade' => $item->peso_por_unidade,
-                    'peso_total' => $item->peso_total,
-                    'peso_disponivel' => $pesoDisponivel,
-                    'status' => $item->status,
-                    'unidades_embalagem' => $item->unidades_embalagem,
-                    'peso_utilizado' => $item->peso_utilizado,
-                    'quantidade_utilizada' => $item->quantidade_utilizada,
-                    'ordem_id' => $item->ordem_id
-                ];
-            });
-            
-            $disponibilidade = $disponibilidade->filter(function ($item) {
-                return $item['peso_disponivel'] > 0;
-            })->values();
-            
-            Log::info('✅ Break bulk disponível encontrado:', [
-                'ordem_id' => $ordemId,
-                'count' => $disponibilidade->count(),
-                'total_peso_disponivel' => $disponibilidade->sum('peso_disponivel'),
-                'tenant_id' => $tenantId
-            ]);
-            
-            return response()->json([
-                'success' => true,
-                'data' => $disponibilidade
-            ]);
-            
-        } catch (\Exception $e) {
-            Log::error('❌ Erro ao buscar break bulk disponível: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'error' => 'Erro interno: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Verificar viabilidade de criar viagem para uma ordem
-     */
-    public function checkViabilidade($ordemId)
-    {
-        try {
-            Log::info('🔍 [API] Verificando viabilidade da ordem:', ['ordem_id' => $ordemId]);
-            
-            $tenantId = $this->getTenantId();
-            
-            $ordem = Ordem::where('tenant_id', $tenantId)
-                ->with(['containers', 'breakBulkItems'])
-                ->find($ordemId);
-            
-            if (!$ordem) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Ordem não encontrada'
-                ], 404);
-            }
-            
-            $mensagem = '';
-            $viavel = true;
-            
-            if ($ordem->status !== 'approved') {
-                $viavel = false;
-                $mensagem = 'Ordem não está aprovada. Status atual: ' . $ordem->status;
-            }
-            
-            if ($viavel) {
-                if ($ordem->tipo_carga === 'Container') {
-                    $containersDisponiveis = $ordem->containers->where('is_available', true)
-                        ->where('status', '!=', 'loaded')
-                        ->count();
-                    
-                    if ($containersDisponiveis === 0) {
-                        $viavel = false;
-                        $mensagem = 'Nenhum container disponível para esta ordem';
-                    }
-                    
-                } elseif ($ordem->tipo_carga === 'Break Bulk') {
-                    $pesoDisponivel = 0;
-                    foreach ($ordem->breakBulkItems as $item) {
-                        $pesoDisponivel += max(0, $item->peso_total - $item->peso_utilizado);
-                    }
-                    
-                    if ($pesoDisponivel <= 0) {
-                        $viavel = false;
-                        $mensagem = 'Todo o break bulk já foi consumido';
-                    }
-                }
-            }
-            
-            Log::info('📊 Viabilidade da ordem:', [
-                'ordem_id' => $ordemId,
-                'viavel' => $viavel,
-                'mensagem' => $mensagem,
-                'tipo_carga' => $ordem->tipo_carga,
-                'tenant_id' => $tenantId
-            ]);
-            
-            return response()->json([
-                'success' => true,
-                'data' => [
-                    'viavel' => $viavel,
-                    'mensagem' => $mensagem,
-                    'tipo_carga' => $ordem->tipo_carga,
-                    'status' => $ordem->status
-                ]
-            ]);
-            
-        } catch (\Exception $e) {
-            Log::error('❌ Erro ao verificar viabilidade: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'error' => 'Erro interno: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Atualizar status do container após ser carregado em uma viagem
-     */
-    public function updateContainerStatus(Request $request, $containerId)
-    {
-        try {
-            Log::info('🔄 [API] Atualizando status do container:', [
-                'container_id' => $containerId,
-                'dados' => $request->all()
-            ]);
-            
-            $tenantId = $this->getTenantId();
-            
-            $container = Container::where('tenant_id', $tenantId)->find($containerId);
-            
-            if (!$container) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Container não encontrado'
-                ], 404);
-            }
-            
-            $validator = Validator::make($request->all(), [
-                'status' => 'required|in:pending,loaded,in_transit,delivered,cancelled',
-                'viagem_id' => 'nullable|integer|exists:viagens,id',
-            ]);
-            
-            if ($validator->fails()) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Erro de validação',
-                    'errors' => $validator->errors()
-                ], 422);
-            }
-            
-            $updateData = [
-                'status' => $request->status,
-                'is_available' => false,
-            ];
-            
-            if ($request->has('viagem_id')) {
-                $updateData['viagem_id'] = $request->viagem_id;
-            }
-            
-            $container->update($updateData);
-            
-            Log::info('✅ Status do container atualizado:', [
-                'container_id' => $container->id,
-                'numero_container' => $container->numero_container,
-                'novo_status' => $container->status,
-                'tenant_id' => $tenantId
-            ]);
-            
-            return response()->json([
-                'success' => true,
-                'message' => 'Status do container atualizado com sucesso',
-                'data' => [
-                    'id' => $container->id,
-                    'numero_container' => $container->numero_container,
-                    'status' => $container->status,
-                    'is_available' => $container->is_available
-                ]
-            ]);
-            
-        } catch (\Exception $e) {
-            Log::error('❌ Erro ao atualizar status do container: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'error' => 'Erro interno: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Consumir break bulk (atualizar peso utilizado)
-     */
-    public function consumirBreakBulk(Request $request, $breakBulkId)
-    {
-        try {
-            Log::info('🔄 [API] Consumindo break bulk:', [
-                'break_bulk_id' => $breakBulkId,
-                'dados' => $request->all()
-            ]);
-            
-            $tenantId = $this->getTenantId();
-            
-            $breakBulkItem = BreakBulkItem::where('tenant_id', $tenantId)->find($breakBulkId);
-            
-            if (!$breakBulkItem) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Break bulk item não encontrado'
-                ], 404);
-            }
-            
-            $validator = Validator::make($request->all(), [
-                'peso_utilizado' => 'required|numeric|min:0',
-                'quantidade_utilizada' => 'required|integer|min:0',
-                'viagem_id' => 'nullable|integer|exists:viagens,id',
-            ]);
-            
-            if ($validator->fails()) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Erro de validação',
-                    'errors' => $validator->errors()
-                ], 422);
-            }
-            
-            $pesoUtilizado = $request->peso_utilizado;
-            $quantidadeUtilizada = $request->quantidade_utilizada;
-            
-            $pesoDisponivel = max(0, $breakBulkItem->peso_total - $breakBulkItem->peso_utilizado);
-            $quantidadeDisponivel = max(0, $breakBulkItem->quantidade - $breakBulkItem->quantidade_utilizada);
-            
-            if ($pesoUtilizado > $pesoDisponivel) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Peso solicitado excede a disponibilidade. Disponível: ' . $pesoDisponivel
-                ], 400);
-            }
-            
-            if ($quantidadeUtilizada > $quantidadeDisponivel) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Quantidade solicitada excede a disponibilidade. Disponível: ' . $quantidadeDisponivel
-                ], 400);
-            }
-            
-            $novoPesoUtilizado = $breakBulkItem->peso_utilizado + $pesoUtilizado;
-            $novaQuantidadeUtilizada = $breakBulkItem->quantidade_utilizada + $quantidadeUtilizada;
-            
-            $updateData = [
-                'peso_utilizado' => $novoPesoUtilizado,
-                'quantidade_utilizada' => $novaQuantidadeUtilizada,
-            ];
-            
-            if ($novoPesoUtilizado >= $breakBulkItem->peso_total) {
-                $updateData['status'] = 'completed';
-            }
-            
-            if ($request->has('viagem_id')) {
-                $updateData['viagem_id'] = $request->viagem_id;
-            }
-            
-            $breakBulkItem->update($updateData);
-            
-            Log::info('✅ Break bulk consumido:', [
-                'break_bulk_id' => $breakBulkItem->id,
-                'tipo_embalagem' => $breakBulkItem->tipo_embalagem,
-                'peso_utilizado_total' => $breakBulkItem->peso_utilizado,
-                'novo_status' => $breakBulkItem->status,
-                'tenant_id' => $tenantId
-            ]);
-            
-            return response()->json([
-                'success' => true,
-                'message' => 'Break bulk atualizado com sucesso',
-                'data' => [
-                    'id' => $breakBulkItem->id,
-                    'tipo_embalagem' => $breakBulkItem->tipo_embalagem,
-                    'peso_total' => $breakBulkItem->peso_total,
-                    'peso_utilizado' => $breakBulkItem->peso_utilizado,
-                    'peso_disponivel' => max(0, $breakBulkItem->peso_total - $breakBulkItem->peso_utilizado),
-                    'status' => $breakBulkItem->status
-                ]
-            ]);
-            
-        } catch (\Exception $e) {
-            Log::error('❌ Erro ao consumir break bulk: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'error' => 'Erro interno: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    // ========== MÉTODOS EXISTENTES ==========
-
-    public function index(Request $request)
-    {
-        $tenantId = $this->getTenantId();
-        
-        Log::info('📥 GET /api/ordens', [
-            'query' => $request->all(),
-            'tenant_id' => $tenantId
-        ]);
-        
-        try {
-            $query = Ordem::where('tenant_id', $tenantId)
-                ->with(['cliente', 'consignee', 'expedidor']);
-            
-            if ($request->has('search') && $request->search) {
-                $search = $request->search;
-                $query->where(function ($q) use ($search) {
-                    $q->where('order_numero', 'like', "%{$search}%")
-                      ->orWhere('numero_bl', 'like', "%{$search}%")
-                      ->orWhere('origem', 'like', "%{$search}%")
-                      ->orWhere('destino', 'like', "%{$search}%")
-                      ->orWhere('commodity', 'like', "%{$search}%")
-                      ->orWhere('shipping_line', 'like', "%{$search}%")
-                      ->orWhereHas('cliente', function ($q) use ($search) {
-                          $q->where('nome_empresa', 'like', "%{$search}%");
-                      });
-                });
-            }
-            
-            if ($request->has('status') && $request->status && $request->status !== 'todos') {
-                $query->where('status', $request->status);
-            }
-            
-            $perPage = $request->get('limit', 10);
-            $page = $request->get('page', 1);
-            
-            $ordens = $query->orderBy('created_at', 'desc')->paginate($perPage, ['*'], 'page', $page);
-            
-            $ordensCamelCase = $ordens->map(function ($ordem) {
-                return $this->paraCamelCase($ordem);
-            });
-            
-            Log::info('✅ Ordens listadas', [
-                'total' => $ordens->total(),
-                'tenant_id' => $tenantId
-            ]);
-            
-            return response()->json([
-                'success' => true,
-                'data' => $ordensCamelCase->toArray(),
-                'pagination' => [
-                    'page' => $ordens->currentPage(),
-                    'limit' => $perPage,
-                    'total' => $ordens->total(),
-                    'totalPages' => $ordens->lastPage(),
-                    'hasNextPage' => $ordens->hasMorePages(),
-                    'hasPrevPage' => $ordens->currentPage() > 1,
-                ]
-            ]);
-            
-        } catch (\Exception $e) {
-            Log::error('❌ Erro ao listar ordens: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'error' => 'Erro interno: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
     public function store(Request $request)
     {
         DB::beginTransaction();
         
         try {
+            // VALIDAÇÃO COM RATE OBRIGATÓRIO
             $validator = Validator::make($request->all(), [
                 'tipoTransito' => 'required|in:Import,Export,Local Import,Local Export,Shutting,Socorro,Interno',
                 'clienteId' => 'required|integer|exists:clientes,id',
@@ -764,6 +280,7 @@ class OrdemController extends Controller
                 'empresa' => 'required|string|max:255',
                 'moedaFatura' => 'required|in:USD,EUR,MZN,ZAR',
                 'createdDate' => 'required|date',
+                'rateId' => 'required|integer|exists:rates,id', // RATE É OBRIGATÓRIO
             ]);
             
             if ($validator->fails()) {
@@ -781,15 +298,25 @@ class OrdemController extends Controller
             Log::info('📥 POST /api/ordens', [
                 'user_id' => $user->id,
                 'tenant_id' => $tenantId,
+                'rate_id' => $request->rateId,
                 'empresa' => $request->empresa,
-                'dados' => $request->except(['containers', 'breakBulkItems'])
             ]);
             
-            // GERAR NÚMERO DA ORDEM (4 dígitos)
+            // Verificar se o rate existe e está aprovado
+            $rate = Rate::where('id', $request->rateId)
+                ->where('tenant_id', $tenantId)
+                ->where('status', 'aprovado')
+                ->first();
+            
+            if (!$rate) {
+                throw new \Exception('Rate não encontrado ou não está aprovado');
+            }
+            
+            // Gerar número da ordem
             $orderNumero = $this->gerarNumeroOrdem($tenantId);
             
             if (!$orderNumero) {
-                throw new \Exception('Não foi possível gerar número da ordem. Sistema de prefixo da empresa não configurado.');
+                throw new \Exception('Não foi possível gerar número da ordem.');
             }
             
             Log::info('🔢 Número da ordem gerado', ['order_numero' => $orderNumero]);
@@ -819,6 +346,7 @@ class OrdemController extends Controller
                 'criado_por' => $user->name ?? 'Sistema',
                 'empresa' => $request->empresa ?? 'TCM BEIRA',
                 'tenant_id' => $tenantId,
+                'rate_id' => $request->rateId, // SALVAR RATE_ID
             ];
             
             Log::info('💾 Dados para criação da ordem', $dados);
@@ -832,6 +360,7 @@ class OrdemController extends Controller
             Log::info('✅ Ordem criada com sucesso', [
                 'ordem_id' => $ordem->id,
                 'order_numero' => $ordem->order_numero,
+                'rate_id' => $ordem->rate_id,
                 'tipo_carga' => $ordem->tipo_carga,
                 'tenant_id' => $tenantId
             ]);
@@ -859,7 +388,7 @@ class OrdemController extends Controller
                         $containerData['unidade']
                     );
                     
-                    $container = Container::create([
+                    Container::create([
                         'ordem_id' => $ordem->id,
                         'tipo_recipiente' => $containerData['tipoRecipiente'],
                         'tipo_carga' => $containerData['tipoCarga'] ?? 'FCL',
@@ -877,13 +406,6 @@ class OrdemController extends Controller
                         'is_available' => true,
                         'tenant_id' => $tenantId,
                     ]);
-                    
-                    Log::info('✅ Container criado', [
-                        'container_id' => $container->id,
-                        'numero_container' => $container->numero_container,
-                        'peso_total' => $container->peso_total,
-                        'tenant_id' => $tenantId
-                    ]);
                 }
             }
             
@@ -896,7 +418,7 @@ class OrdemController extends Controller
                 ]);
                 
                 foreach ($breakBulkItems as $itemData) {
-                    $breakBulkItem = BreakBulkItem::create([
+                    BreakBulkItem::create([
                         'ordem_id' => $ordem->id,
                         'tipo_embalagem' => $itemData['tipoEmbalagem'],
                         'quantidade' => $itemData['quantidade'] ?? 0,
@@ -908,17 +430,10 @@ class OrdemController extends Controller
                         'status' => 'pending',
                         'tenant_id' => $tenantId,
                     ]);
-                    
-                    Log::info('✅ Break bulk item criado', [
-                        'break_bulk_id' => $breakBulkItem->id,
-                        'tipo_embalagem' => $breakBulkItem->tipo_embalagem,
-                        'peso_total' => $breakBulkItem->peso_total,
-                        'tenant_id' => $tenantId
-                    ]);
                 }
             }
             
-            $ordem->load(['cliente', 'consignee', 'expedidor', 'containers', 'breakBulkItems']);
+            $ordem->load(['cliente', 'consignee', 'expedidor', 'containers', 'breakBulkItems', 'rate']);
             
             DB::commit();
             
@@ -936,10 +451,61 @@ class OrdemController extends Controller
             return response()->json([
                 'success' => false,
                 'error' => 'Erro interno: ' . $e->getMessage(),
-                'debug' => [
-                    'file' => $e->getFile(),
-                    'line' => $e->getLine()
+            ], 500);
+        }
+    }
+
+    public function index(Request $request)
+    {
+        $tenantId = $this->getTenantId();
+        
+        try {
+            $query = Ordem::where('tenant_id', $tenantId)
+                ->with(['cliente', 'consignee', 'expedidor', 'rate']);
+            
+            if ($request->has('search') && $request->search) {
+                $search = $request->search;
+                $query->where(function ($q) use ($search) {
+                    $q->where('order_numero', 'like', "%{$search}%")
+                      ->orWhere('numero_bl', 'like', "%{$search}%")
+                      ->orWhere('origem', 'like', "%{$search}%")
+                      ->orWhere('destino', 'like', "%{$search}%")
+                      ->orWhere('commodity', 'like', "%{$search}%")
+                      ->orWhereHas('cliente', function ($q) use ($search) {
+                          $q->where('nome_empresa', 'like', "%{$search}%");
+                      });
+                });
+            }
+            
+            if ($request->has('status') && $request->status && $request->status !== 'todos') {
+                $query->where('status', $request->status);
+            }
+            
+            $perPage = $request->get('limit', 10);
+            $page = $request->get('page', 1);
+            
+            $ordens = $query->orderBy('created_at', 'desc')->paginate($perPage, ['*'], 'page', $page);
+            
+            $ordensCamelCase = $ordens->map(function ($ordem) {
+                return $this->paraCamelCase($ordem);
+            });
+            
+            return response()->json([
+                'success' => true,
+                'data' => $ordensCamelCase->toArray(),
+                'pagination' => [
+                    'page' => $ordens->currentPage(),
+                    'limit' => $perPage,
+                    'total' => $ordens->total(),
+                    'totalPages' => $ordens->lastPage(),
                 ]
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('❌ Erro ao listar ordens: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'error' => 'Erro interno: ' . $e->getMessage()
             ], 500);
         }
     }
@@ -950,7 +516,7 @@ class OrdemController extends Controller
             $tenantId = $this->getTenantId();
             
             $ordem = Ordem::where('tenant_id', $tenantId)
-                ->with(['cliente', 'consignee', 'expedidor', 'containers', 'breakBulkItems'])
+                ->with(['cliente', 'consignee', 'expedidor', 'containers', 'breakBulkItems', 'rate'])
                 ->find($id);
             
             if (!$ordem) {
@@ -979,12 +545,6 @@ class OrdemController extends Controller
         try {
             $tenantId = $this->getTenantId();
             
-            Log::info('📥 PUT /api/ordens/' . $id, [
-                'user_id' => Auth::id(),
-                'tenant_id' => $tenantId,
-                'dados' => $request->all()
-            ]);
-            
             $ordem = Ordem::where('tenant_id', $tenantId)->find($id);
             
             if (!$ordem) {
@@ -1003,6 +563,7 @@ class OrdemController extends Controller
                 'destino' => 'sometimes|string|max:255',
                 'commodity' => 'sometimes|string|max:255',
                 'tipoCarga' => 'sometimes|in:Container,Break Bulk,Bulk Loose,General Cargo',
+                'rateId' => 'sometimes|integer|exists:rates,id',
             ]);
             
             if ($validator->fails()) {
@@ -1029,6 +590,7 @@ class OrdemController extends Controller
                 'moedaFatura' => 'moeda_fatura',
                 'pesoTotal' => 'peso_total',
                 'volumeTotal' => 'volume_total',
+                'rateId' => 'rate_id',
             ];
             
             foreach ($fieldMapping as $camelField => $snakeField) {
@@ -1044,13 +606,11 @@ class OrdemController extends Controller
                 }
             }
             
-            Log::info('📝 Dados para atualização', array_merge($updateData, ['tenant_id' => $tenantId]));
-            
             $ordem->update($updateData);
             
             return response()->json([
                 'success' => true,
-                'data' => $this->paraCamelCase($ordem->fresh()->load(['cliente', 'consignee', 'expedidor', 'containers', 'breakBulkItems'])),
+                'data' => $this->paraCamelCase($ordem->fresh()->load(['cliente', 'consignee', 'expedidor', 'containers', 'breakBulkItems', 'rate'])),
                 'message' => 'Ordem atualizada com sucesso!'
             ]);
             
@@ -1099,12 +659,6 @@ class OrdemController extends Controller
             
             $ordem->update($updateData);
             
-            Log::info('✅ Status da ordem atualizado', [
-                'ordem_id' => $id,
-                'novo_status' => $request->status,
-                'tenant_id' => $tenantId
-            ]);
-            
             return response()->json([
                 'success' => true,
                 'data' => $this->paraCamelCase($ordem->fresh()),
@@ -1135,11 +689,6 @@ class OrdemController extends Controller
             }
             
             $ordem->delete();
-            
-            Log::info('✅ Ordem excluída', [
-                'id' => $id,
-                'tenant_id' => $tenantId
-            ]);
             
             return response()->json([
                 'success' => true,
@@ -1206,7 +755,6 @@ class OrdemController extends Controller
         }
     }
 
-    // ESTATÍSTICAS DE NUMERAÇÃO DAS ORDENS
     public function estatisticasNumeracao()
     {
         try {
@@ -1221,18 +769,15 @@ class OrdemController extends Controller
                 ], 404);
             }
             
-            // Contar ordens da empresa
             $totalOrdens = Ordem::where('tenant_id', $tenantId)
                 ->where('order_numero', 'like', $prefixo . '-%')
                 ->count();
             
-            // Última ordem
             $ultimaOrdem = Ordem::where('tenant_id', $tenantId)
                 ->where('order_numero', 'like', $prefixo . '-%')
                 ->orderBy('created_at', 'desc')
                 ->first();
             
-            // Próximo número (4 dígitos)
             $proximoNumero = 1;
             if ($ultimaOrdem) {
                 $parts = explode('-', $ultimaOrdem->order_numero);

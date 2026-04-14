@@ -29,8 +29,10 @@ Route::get('/public/tracking/{code}', [PublicTrackingController::class, 'trackBy
 // ROTAS DE IMPRESSÃO (COM TOKEN NA URL) - FORA DO GRUPO DE AUTENTICAÇÃO
 // ============================================
 
-// Viagens
+// Viagens - Manifesto
 Route::get('/viagens/{id}/print', [PrintController::class, 'generateManifest']);
+
+// Viagens - Reforço de Valores (Despesas)
 Route::get('/viagens/{viagemId}/print-despesas', [DespesasPrintController::class, 'printDespesas']);
 
 // Faturação
@@ -141,9 +143,10 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // ============================================
-    // VIAGENS
+    // VIAGENS - ROTAS PROTEGIDAS (CRUD)
     // ============================================
     Route::prefix('viagens')->group(function () {
+        // Estas rotas NÃO incluem /print, apenas CRUD normal
         Route::get('/recursos', [App\Http\Controllers\Api\ViagemController::class, 'recursos']);
         Route::get('/para-faturar', [App\Http\Controllers\Api\ViagemFaturacaoController::class, 'paraFaturar']);
         Route::get('/motorista/{motorista}/status', [App\Http\Controllers\Api\ViagemController::class, 'verificarStatusMotorista']);
@@ -294,7 +297,6 @@ Route::middleware('auth:sanctum')->group(function () {
         '/despesas/tipos.php',
         '/motoristas/motoristas.php',
         '/camioes/camioes.php',
-        '/viagens/viagens.php',
         '/empresa/empresa.php',
         '/reportes/reportes.php',
         '/dashboard/dashboard.php',

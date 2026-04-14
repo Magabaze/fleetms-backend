@@ -75,6 +75,28 @@ class DriverExpense extends Model
     }
 
     /**
+     * Relacionamento com TipoDespesa (pelo expense_head)
+     */
+    public function tipoDespesa(): BelongsTo
+    {
+        return $this->belongsTo(TipoDespesa::class, 'expense_head', 'nome');
+    }
+
+    /**
+     * Accessor para obter o nome do tipo de despesa
+     */
+    public function getTipoNomeAttribute(): string
+    {
+        // Se o relacionamento foi carregado e existe
+        if ($this->relationLoaded('tipoDespesa') && $this->tipoDespesa) {
+            return $this->tipoDespesa->nome;
+        }
+        
+        // Fallback: retorna o valor do expense_head
+        return $this->expense_head ?? '—';
+    }
+
+    /**
      * Scope a query to only include active expenses.
      */
     public function scopeActive($query)

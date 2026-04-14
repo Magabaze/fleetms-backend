@@ -11,10 +11,117 @@ use App\Models\Empresa;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 use Barryvdh\DomPDF\Facade\Pdf;
 
 class ManutencaoPrintController extends Controller
 {
+    /**
+     * CONVERTE IMAGEM PARA BASE64 DE FORMA ROBUSTA
+     */
+    private function getImageBase64($path)
+    {
+        if (empty($path)) {
+            Log::warning('getImageBase64: caminho vazio');
+            return null;
+        }
+
+        try {
+            // Se já for base64, retorna diretamente
+            if (strpos($path, 'data:image') === 0) {
+                return $path;
+            }
+
+            Log::info('🔍 Tentando obter imagem', ['path' => $path]);
+
+            // 1. Tenta via Storage disk R2
+            if (Storage::disk('r2')->exists($path)) {
+                $imageData = Storage::disk('r2')->get($path);
+                if ($imageData) {
+                    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                    $mimeType = finfo_buffer($finfo, $imageData);
+                    finfo_close($finfo);
+
+                    if (!$mimeType) {
+                        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+                        $mimeType = match($ext) {
+                            'jpg', 'jpeg' => 'image/jpeg',
+                            'png' => 'image/png',
+                            'gif' => 'image/gif',
+                            'webp' => 'image/webp',
+                            default => 'image/jpeg',
+                        };
+                    }
+
+                    $base64 = 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
+                    Log::info('✅ Imagem carregada do R2', ['mime_type' => $mimeType]);
+                    return $base64;
+                }
+            }
+
+            // 2. Tenta via Storage local
+            if (Storage::disk('public')->exists($path)) {
+                $imageData = Storage::disk('public')->get($path);
+                if ($imageData) {
+                    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                    $mimeType = finfo_buffer($finfo, $imageData);
+                    finfo_close($finfo);
+                    $base64 = 'data:' . ($mimeType ?: 'image/jpeg') . ';base64,' . base64_encode($imageData);
+                    Log::info('✅ Imagem carregada do storage local');
+                    return $base64;
+                }
+            }
+
+            // 3. Fallback: URL externa via cURL
+            if (filter_var($path, FILTER_VALIDATE_URL)) {
+                Log::info('🌐 Tentando baixar via URL', ['url' => $path]);
+                
+                $ch = curl_init($path);
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_FOLLOWLOCATION => true,
+                    CURLOPT_TIMEOUT => 15,
+                    CURLOPT_SSL_VERIFYPEER => false,
+                    CURLOPT_SSL_VERIFYHOST => false,
+                    CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                ]);
+                $imageData = curl_exec($ch);
+                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+                curl_close($ch);
+
+                if ($imageData !== false && $httpCode === 200) {
+                    $mimeType = $contentType ?: 'image/jpeg';
+                    $base64 = 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
+                    Log::info('✅ Imagem baixada via URL', ['http_code' => $httpCode]);
+                    return $base64;
+                }
+                
+                Log::warning('⚠️ Falha ao baixar via URL', ['http_code' => $httpCode]);
+            }
+
+            // 4. Fallback: tenta como caminho absoluto do servidor
+            if (file_exists($path)) {
+                $imageData = file_get_contents($path);
+                if ($imageData) {
+                    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                    $mimeType = finfo_buffer($finfo, $imageData);
+                    finfo_close($finfo);
+                    $base64 = 'data:' . ($mimeType ?: 'image/jpeg') . ';base64,' . base64_encode($imageData);
+                    Log::info('✅ Imagem carregada do sistema de arquivos');
+                    return $base64;
+                }
+            }
+
+            Log::warning('❌ Não foi possível obter imagem por nenhum método', ['path' => $path]);
+            return null;
+
+        } catch (\Exception $e) {
+            Log::error('❌ Erro ao obter imagem: ' . $e->getMessage(), ['path' => $path]);
+            return null;
+        }
+    }
+
     /**
      * CONVERTER NÚMERO PARA EXTENSO
      */
@@ -38,16 +145,20 @@ class ManutencaoPrintController extends Controller
         
         $extenso = '';
         
+        // MILHÕES
+        if ($reais >= 1000000) {
+            $milhoes = floor($reais / 1000000);
+            $reais = $reais % 1000000;
+            $extensoMilhoes = $this->numeroPorExtensoParcial($milhoes, $unidades, $dezenas, $centenas, $especiais);
+            $extenso .= $milhoes == 1 ? 'um milhão' : $extensoMilhoes . ' milhões';
+            if ($reais > 0) $extenso .= ', ';
+        }
+        
+        // MILHARES
         if ($reais >= 1000) {
             $milhares = floor($reais / 1000);
             $reais = $reais % 1000;
-            
-            if ($milhares == 1) {
-                $extenso .= 'mil';
-            } else {
-                $extenso .= $this->numeroPorExtensoParcial($milhares, $unidades, $dezenas, $centenas, $especiais) . ' mil';
-            }
-            
+            $extenso .= $milhares == 1 ? 'mil' : $this->numeroPorExtensoParcial($milhares, $unidades, $dezenas, $centenas, $especiais) . ' mil';
             if ($reais > 0) $extenso .= ' e ';
         }
         
@@ -55,19 +166,16 @@ class ManutencaoPrintController extends Controller
             $extenso .= $this->numeroPorExtensoParcial($reais, $unidades, $dezenas, $centenas, $especiais);
         }
         
-        $extenso .= ' metical' . ($valor >= 2 ? 'is' : '');
+        $extenso .= $valor >= 2 ? ' meticais' : ' metical';
         
         if ($centavos > 0) {
             $extenso .= ' e ' . $this->numeroPorExtensoParcial($centavos, $unidades, $dezenas, $centenas, $especiais);
-            $extenso .= ' centavo' . ($centavos >= 2 ? 's' : '');
+            $extenso .= $centavos >= 2 ? ' centavos' : ' centavo';
         }
         
         return $extenso;
     }
 
-    /**
-     * CONVERTER NÚMERO PARCIAL PARA EXTENSO
-     */
     private function numeroPorExtensoParcial($num, $u, $d, $c, $e)
     {
         if ($num < 10) return $u[$num];
@@ -88,11 +196,15 @@ class ManutencaoPrintController extends Controller
      */
     private function dataPorExtenso($data)
     {
-        $dias = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+        if (!$data) return 'Data não informada';
         $meses = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
-        
-        $t = strtotime($data);
-        return "{$dias[date('w', $t)]}, " . date('d', $t) . " de {$meses[date('n', $t)-1]} de " . date('Y', $t);
+        try {
+            $t = strtotime($data);
+            if (!$t) return 'Data inválida';
+            return date('d', $t) . ' de ' . $meses[date('n', $t) - 1] . ' de ' . date('Y', $t);
+        } catch (\Exception $e) {
+            return 'Data inválida';
+        }
     }
 
     /**
@@ -100,11 +212,8 @@ class ManutencaoPrintController extends Controller
      */
     private function formatarData($data)
     {
-        if (!$data) return '-';
-        if (strpos($data, 'T') !== false) {
-            return explode('T', $data)[0];
-        }
-        return date('Y-m-d', strtotime($data));
+        if (!$data) return '—';
+        return date('d/m/Y', strtotime($data));
     }
 
     /**
@@ -115,7 +224,6 @@ class ManutencaoPrintController extends Controller
         try {
             Log::info('🖨️ Imprimindo ordem de trabalho', ['id' => $id]);
 
-            // Autenticação via token na URL
             $token = $request->query('token');
             if ($token) {
                 $user = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
@@ -136,21 +244,13 @@ class ManutencaoPrintController extends Controller
 
             $empresa = Empresa::where('tenant_id', $user->tenant_id)->first();
 
-            // Buscar logo da empresa
+            // Buscar logo da empresa usando o método unificado
             $logo_empresa = null;
             if ($empresa && $empresa->logo_url) {
-                try {
-                    if (\Storage::disk('r2')->exists($empresa->logo_url)) {
-                        $imageData = \Storage::disk('r2')->get($empresa->logo_url);
-                        $mimeType = finfo_buffer(finfo_open(FILEINFO_MIME_TYPE), $imageData);
-                        $logo_empresa = 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
-                    }
-                } catch (\Exception $e) {
-                    Log::warning('Erro ao carregar logo: ' . $e->getMessage());
-                }
+                $logo_empresa = $this->getImageBase64($empresa->logo_url);
+                Log::info('📸 Logo processada', ['tem_logo' => !empty($logo_empresa)]);
             }
 
-            // Mapeamento de tipos para labels
             $tipos = [
                 'preventiva' => 'Preventiva',
                 'corretiva' => 'Corretiva',
@@ -171,33 +271,37 @@ class ManutencaoPrintController extends Controller
                 'urgente' => 'Urgente',
             ];
 
-            // ✅ PREPARAR TODAS AS VARIÁVEIS
             $data = [
                 'ordem' => $ordem,
                 'empresa' => $empresa,
                 'logo_empresa' => $logo_empresa,
-                'titulo' => 'ORDEM DE TRABALHO',
+                'tipo' => $request->query('tipo', 'original'),
+                'copia' => $request->query('copia', 'false'),
                 'tipo_label' => $tipos[$ordem->tipo] ?? $ordem->tipo,
                 'status_label' => $status[$ordem->status] ?? $ordem->status,
                 'prioridade_label' => $prioridades[$ordem->prioridade] ?? $ordem->prioridade,
-                'cor' => '0aca7d',
-                'cor_fundo' => 'f0fdf4',
                 'data_criacao' => $this->formatarData($ordem->data_criacao),
                 'data_prevista' => $this->formatarData($ordem->data_prevista),
-                'data_extenso' => $this->dataPorExtenso($ordem->data_criacao),
                 'data_emissao' => now()->format('d/m/Y H:i:s'),
                 'current_date' => now()->format('d/m/Y H:i:s'),
                 'usuario' => $user->name ?? 'Sistema',
             ];
 
-            // Debug mode - retorna HTML
             if ($request->query('debug') === 'true') {
                 $html = view('pdf.manutencao.ordem-trabalho', $data)->render();
                 return response($html)->header('Content-Type', 'text/html');
             }
 
-            // Gerar PDF com DOMPDF
             $pdf = Pdf::loadView('pdf.manutencao.ordem-trabalho', $data);
+            $pdf->setPaper('A4', 'portrait');
+            $pdf->setOptions([
+                'defaultFont' => 'sans-serif',
+                'isHtml5ParserEnabled' => true,
+                'isRemoteEnabled' => true,
+                'isPhpEnabled' => true,
+                'dpi' => 150,
+            ]);
+
             $filename = 'OT_' . $ordem->codigo . '_' . date('Ymd_His') . '.pdf';
 
             if ($request->query('download') === '1') {
@@ -207,10 +311,7 @@ class ManutencaoPrintController extends Controller
             return $pdf->stream($filename);
 
         } catch (\Exception $e) {
-            Log::error('❌ Erro ao imprimir ordem: ' . $e->getMessage(), [
-                'file' => $e->getFile(),
-                'line' => $e->getLine()
-            ]);
+            Log::error('❌ Erro ao imprimir ordem: ' . $e->getMessage());
             return response()->json(['error' => $e->getMessage()], 500);
         }
     }
@@ -223,7 +324,6 @@ class ManutencaoPrintController extends Controller
         try {
             Log::info('🖨️ Imprimindo avaria', ['id' => $id]);
 
-            // Autenticação via token na URL
             $token = $request->query('token');
             if ($token) {
                 $user = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
@@ -244,21 +344,13 @@ class ManutencaoPrintController extends Controller
 
             $empresa = Empresa::where('tenant_id', $user->tenant_id)->first();
 
-            // Buscar logo da empresa
+            // Buscar logo da empresa usando o método unificado
             $logo_empresa = null;
             if ($empresa && $empresa->logo_url) {
-                try {
-                    if (\Storage::disk('r2')->exists($empresa->logo_url)) {
-                        $imageData = \Storage::disk('r2')->get($empresa->logo_url);
-                        $mimeType = finfo_buffer(finfo_open(FILEINFO_MIME_TYPE), $imageData);
-                        $logo_empresa = 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
-                    }
-                } catch (\Exception $e) {
-                    Log::warning('Erro ao carregar logo: ' . $e->getMessage());
-                }
+                $logo_empresa = $this->getImageBase64($empresa->logo_url);
+                Log::info('📸 Logo processada', ['tem_logo' => !empty($logo_empresa)]);
             }
 
-            // Mapeamento de status
             $status = [
                 'aberta' => 'Aberta',
                 'em_diagnostico' => 'Em Diagnóstico',
@@ -267,36 +359,41 @@ class ManutencaoPrintController extends Controller
             ];
 
             $prioridades = [
-                'normal' => 'Normal',
+                'baixa' => 'Baixa',
+                'media' => 'Média',
                 'alta' => 'Alta',
                 'urgente' => 'Urgente',
             ];
 
-            // ✅ PREPARAR TODAS AS VARIÁVEIS
             $data = [
                 'avaria' => $avaria,
                 'empresa' => $empresa,
                 'logo_empresa' => $logo_empresa,
-                'titulo' => 'REGISTO DE AVARIA',
+                'tipo' => $request->query('tipo', 'original'),
+                'copia' => $request->query('copia', 'false'),
                 'status_label' => $status[$avaria->status] ?? $avaria->status,
                 'prioridade_label' => $prioridades[$avaria->prioridade] ?? $avaria->prioridade,
-                'cor' => 'dc2626',
-                'cor_fundo' => 'fee2e2',
                 'data_reporte' => $this->formatarData($avaria->data_reporte),
-                'data_extenso' => $this->dataPorExtenso($avaria->data_reporte),
                 'data_emissao' => now()->format('d/m/Y H:i:s'),
                 'current_date' => now()->format('d/m/Y H:i:s'),
                 'usuario' => $user->name ?? 'Sistema',
             ];
 
-            // Debug mode
             if ($request->query('debug') === 'true') {
                 $html = view('pdf.manutencao.avaria', $data)->render();
                 return response($html)->header('Content-Type', 'text/html');
             }
 
-            // Gerar PDF
             $pdf = Pdf::loadView('pdf.manutencao.avaria', $data);
+            $pdf->setPaper('A4', 'portrait');
+            $pdf->setOptions([
+                'defaultFont' => 'sans-serif',
+                'isHtml5ParserEnabled' => true,
+                'isRemoteEnabled' => true,
+                'isPhpEnabled' => true,
+                'dpi' => 150,
+            ]);
+
             $filename = 'AVARIA_' . $avaria->codigo . '_' . date('Ymd_His') . '.pdf';
 
             if ($request->query('download') === '1') {
@@ -319,7 +416,6 @@ class ManutencaoPrintController extends Controller
         try {
             Log::info('🖨️ Imprimindo plano preventivo', ['id' => $id]);
 
-            // Autenticação via token na URL
             $token = $request->query('token');
             if ($token) {
                 $user = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
@@ -340,58 +436,53 @@ class ManutencaoPrintController extends Controller
 
             $empresa = Empresa::where('tenant_id', $user->tenant_id)->first();
 
-            // Buscar logo da empresa
+            // Buscar logo da empresa usando o método unificado
             $logo_empresa = null;
             if ($empresa && $empresa->logo_url) {
-                try {
-                    if (\Storage::disk('r2')->exists($empresa->logo_url)) {
-                        $imageData = \Storage::disk('r2')->get($empresa->logo_url);
-                        $mimeType = finfo_buffer(finfo_open(FILEINFO_MIME_TYPE), $imageData);
-                        $logo_empresa = 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
-                    }
-                } catch (\Exception $e) {
-                    Log::warning('Erro ao carregar logo: ' . $e->getMessage());
-                }
+                $logo_empresa = $this->getImageBase64($empresa->logo_url);
+                Log::info('📸 Logo processada', ['tem_logo' => !empty($logo_empresa)]);
             }
 
-            // Mapeamento de status
             $status = [
                 'ok' => 'Em Dia',
                 'alerta' => 'Alerta',
                 'vencido' => 'Vencido',
             ];
 
-            // Calcular progresso e KM restantes
             $kmRestantes = ($plano->ultimo_km + $plano->intervalo_km) - $plano->km_atual;
             $progresso = min((($plano->km_atual - $plano->ultimo_km) / $plano->intervalo_km) * 100, 100);
 
-            // ✅ PREPARAR TODAS AS VARIÁVEIS
             $data = [
                 'plano' => $plano,
                 'empresa' => $empresa,
                 'logo_empresa' => $logo_empresa,
-                'titulo' => 'PLANO DE MANUTENÇÃO PREVENTIVA',
+                'tipo' => $request->query('tipo', 'original'),
+                'copia' => $request->query('copia', 'false'),
                 'status_label' => $status[$plano->status] ?? $plano->status,
-                'cor' => '7c3aed',
-                'cor_fundo' => 'f5f3ff',
                 'km_restantes' => $kmRestantes,
                 'progresso' => round($progresso, 1),
                 'ultima_data' => $this->formatarData($plano->ultima_data),
                 'proxima_data' => $this->formatarData($plano->proxima_data),
-                'data_extenso' => $this->dataPorExtenso($plano->ultima_data),
                 'data_emissao' => now()->format('d/m/Y H:i:s'),
                 'current_date' => now()->format('d/m/Y H:i:s'),
                 'usuario' => $user->name ?? 'Sistema',
             ];
 
-            // Debug mode
             if ($request->query('debug') === 'true') {
                 $html = view('pdf.manutencao.plano-preventivo', $data)->render();
                 return response($html)->header('Content-Type', 'text/html');
             }
 
-            // Gerar PDF
             $pdf = Pdf::loadView('pdf.manutencao.plano-preventivo', $data);
+            $pdf->setPaper('A4', 'portrait');
+            $pdf->setOptions([
+                'defaultFont' => 'sans-serif',
+                'isHtml5ParserEnabled' => true,
+                'isRemoteEnabled' => true,
+                'isPhpEnabled' => true,
+                'dpi' => 150,
+            ]);
+
             $filename = 'PLANO_' . $plano->id . '_' . date('Ymd_His') . '.pdf';
 
             if ($request->query('download') === '1') {

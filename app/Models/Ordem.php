@@ -1,18 +1,18 @@
 <?php
-// app/Models/Ordem.php - VERSÃO CORRIGIDA
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Stancl\Tenancy\Database\Concerns\BelongsToTenant;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Ordem extends Model
 {
-    use BelongsToTenant;
-    
+    use HasFactory;
+
     protected $table = 'ordens';
-    
-    // LISTA COMPLETA DOS CAMPOS QUE PODEM SER PREENCHIDOS
+
     protected $fillable = [
         'order_numero',
         'tipo_transito',
@@ -37,37 +37,47 @@ class Ordem extends Model
         'observacoes',
         'criado_por',
         'aprovado_por',
-        'empresa',  // ADICIONAR ESTE CAMPO
+        'aprovado_em',
+        'empresa',
         'tenant_id',
+        'rate_id', // ADICIONADO
     ];
-    
+
     protected $casts = [
-        'status' => 'string',
         'created_date' => 'date',
         'previsao_carregamento' => 'date',
+        'aprovado_em' => 'datetime',
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
     ];
-    
-    public function cliente()
+
+    // Relacionamentos
+    public function cliente(): BelongsTo
     {
         return $this->belongsTo(Cliente::class, 'cliente_id');
     }
-    
-    public function consignee()
+
+    public function consignee(): BelongsTo
     {
         return $this->belongsTo(Cliente::class, 'consignee_id');
     }
-    
-    public function expedidor()
+
+    public function expedidor(): BelongsTo
     {
         return $this->belongsTo(Cliente::class, 'expedidor_id');
     }
-    
-    public function containers()
+
+    public function rate(): BelongsTo
+    {
+        return $this->belongsTo(Rate::class, 'rate_id');
+    }
+
+    public function containers(): HasMany
     {
         return $this->hasMany(Container::class, 'ordem_id');
     }
-    
-    public function breakBulkItems()
+
+    public function breakBulkItems(): HasMany
     {
         return $this->hasMany(BreakBulkItem::class, 'ordem_id');
     }

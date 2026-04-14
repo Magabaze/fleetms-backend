@@ -1,4 +1,5 @@
 <?php
+// app/Models/Cliente.php
 
 namespace App\Models;
 
@@ -28,18 +29,7 @@ class Cliente extends Model
     
     protected $casts = [
         'tipo_cliente' => 'string',
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
     ];
-    
-    // Se quiser acessar como camelCase
-    public function getNomeEmpresaAttribute($value)
-    {
-        return $value;
-    }
-    
-    public function setNomeEmpresaAttribute($value)
-    {
-        $this->attributes['nome_empresa'] = $value;
-    }
-    
-    // ... outros getters/setters se necessário
 }

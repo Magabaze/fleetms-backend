@@ -3,7 +3,6 @@
 <html lang="pt">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
     <title>Ordem de Faturação - {{ $ordem->codigo }}</title>
     <style>
         /* RESET E CONFIGURAÇÕES BASE */
@@ -12,525 +11,601 @@
             padding: 0;
             box-sizing: border-box;
         }
-
+        
         body {
-            font-family: 'Helvetica', 'Arial', sans-serif;
-            font-size: 10pt;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 7pt;
             line-height: 1.4;
-            color: #2c3e50;
-            background: #ffffff;
+            color: #000;
+            background: #fff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
             margin: 0;
-            padding: 0;
+            padding: 5mm;
         }
-
+        
         .container {
             width: 100%;
-            max-width: 210mm;
+            max-width: 190mm;
             margin: 0 auto;
-            padding: 15mm 20mm;
-            background: white;
+            padding: 3mm 4mm;
+            background: #fff;
         }
-
+        
         /* CABEÇALHO */
         .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 25px;
-            padding-bottom: 15px;
-            border-bottom: 2px solid #e0e0e0;
+            display: table;
+            width: 100%;
+            margin-bottom: 4mm;
+            padding-bottom: 2mm;
+            border-bottom: 1.2pt solid #013334;
         }
-
-        .empresa-info {
-            flex: 1;
+        
+        .header-cell {
+            display: table-cell;
+            vertical-align: middle;
         }
-
-        .empresa-nome {
-            font-size: 18pt;
-            font-weight: 700;
-            color: #1e3c72;
-            margin-bottom: 5px;
-            letter-spacing: -0.5px;
+        
+        .logo {
+            width: 45mm;
         }
-
-        .empresa-detalhes {
-            font-size: 8pt;
-            color: #5d6d7e;
-            line-height: 1.5;
+        
+        .logo img {
+            max-width: 40mm;
+            max-height: 18mm;
+            display: block;
         }
-
-        .empresa-detalhes p {
-            margin: 2px 0;
+        
+        .company-info {
+            font-size: 7pt;
+            color: #5a5f6e;
+            line-height: 1.6;
         }
-
-        .documento-tipo {
+        
+        .company-name {
+            font-size: 11pt;
+            font-weight: bold;
+            color: #013334;
+            margin-bottom: 1mm;
+        }
+        
+        .doc-meta {
             text-align: right;
-            min-width: 200px;
+            width: 55mm;
         }
-
-        .documento-titulo {
-            font-size: 16pt;
-            font-weight: 700;
-            color: #0aca7d;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 5px;
-        }
-
-        .documento-numero {
+        
+        .doc-title {
             font-size: 12pt;
-            font-weight: 600;
-            color: #34495e;
-            background: #f8f9fa;
-            padding: 5px 15px;
-            border-radius: 4px;
-            display: inline-block;
+            font-weight: bold;
+            color: #013334;
+            margin-bottom: 2mm;
+            text-transform: uppercase;
+            letter-spacing: 0.3pt;
         }
-
+        
+        .doc-number {
+            font-size: 9pt;
+            font-weight: bold;
+            color: #0f1116;
+        }
+        
+        /* STATUS BADGE */
         .status-badge {
             display: inline-block;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 8pt;
-            font-weight: 600;
-            margin-top: 8px;
+            padding: 1mm 3mm;
+            border-radius: 1mm;
+            font-size: 6.5pt;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin: 1mm 0;
         }
-
-        .status-pendente {
-            background: #fff3cd;
-            color: #856404;
-            border: 1px solid #ffeeba;
+        .status-pendente   { background-color: #ffc107; color: #000; }
+        .status-processado { background-color: #28a745; color: #fff; }
+        .status-cancelado  { background-color: #dc3545; color: #fff; }
+        
+        /* CONTEÚDO PRINCIPAL */
+        .content {
+            display: table;
+            width: 100%;
+            margin-bottom: 3mm;
         }
-
-        .status-processado {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
+        
+        .column {
+            display: table-cell;
+            vertical-align: top;
+            padding: 0 2mm;
         }
-
-        .status-cancelado {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
+        
+        .left-column {
+            width: 50%;
+            padding-left: 0;
         }
-
+        
+        .right-column {
+            width: 50%;
+            padding-right: 0;
+        }
+        
         /* SEÇÕES */
         .section {
-            margin-bottom: 20px;
+            border: 0.5pt solid #e4e6ec;
+            margin-bottom: 3mm;
+            break-inside: avoid;
+            page-break-inside: avoid;
         }
-
-        .section-titulo {
-            font-size: 11pt;
-            font-weight: 600;
-            color: #1e3c72;
+        
+        .section-title {
+            background: #013334;
+            color: white;
+            padding: 1.5mm 3mm;
+            font-size: 7.5pt;
+            font-weight: bold;
+            text-align: left;
             text-transform: uppercase;
-            border-bottom: 1px solid #d0d7de;
-            padding-bottom: 5px;
-            margin-bottom: 15px;
+            letter-spacing: 0.3pt;
         }
-
-        /* GRADE DE INFORMAÇÕES */
-        .info-grid {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 15px;
-            margin-bottom: 20px;
+        
+        .section-content {
+            padding: 2mm 3mm;
         }
-
-        .info-card {
-            flex: 1 1 calc(33.333% - 15px);
-            background: #f8fafc;
-            border: 1px solid #e9ecef;
-            border-radius: 6px;
-            padding: 12px 15px;
-        }
-
-        .info-row {
-            display: flex;
-            margin-bottom: 6px;
-            font-size: 9pt;
-        }
-
-        .info-label {
-            width: 80px;
-            font-weight: 600;
-            color: #5d6d7e;
-        }
-
-        .info-value {
-            flex: 1;
-            color: #1e3c72;
-            font-weight: 500;
-        }
-
+        
         /* TABELAS */
-        .tabela {
+        .table-info {
             width: 100%;
             border-collapse: collapse;
-            margin: 15px 0;
-            font-size: 9pt;
+            font-size: 7pt;
         }
-
-        .tabela th {
-            background: #1e3c72;
+        
+        .table-info td {
+            padding: 1mm 0;
+            vertical-align: top;
+            border: none;
+        }
+        
+        .label {
+            font-weight: bold;
+            width: 35%;
+            color: #5a5f6e;
+            text-transform: uppercase;
+            font-size: 6.5pt;
+        }
+        
+        /* TABELA DE ITEMS/SERVIÇOS */
+        .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 6.5pt;
+            margin-top: 1mm;
+        }
+        
+        .items-table th {
+            background: #4a5568;
             color: white;
-            font-weight: 600;
-            padding: 8px 10px;
+            padding: 1mm 2mm;
+            border: 0.5pt solid #000;
             text-align: left;
-            border: 1px solid #2c3e50;
+            font-weight: bold;
+            font-size: 6.5pt;
+            text-transform: uppercase;
         }
-
-        .tabela td {
-            padding: 8px 10px;
-            border: 1px solid #d0d7de;
+        
+        .items-table td {
+            border: 0.5pt solid #ddd;
+            padding: 1mm 2mm;
+            vertical-align: top;
         }
-
-        .tabela tbody tr:nth-child(even) {
-            background: #f8fafc;
+        
+        .items-table tbody tr:nth-child(even) {
+            background-color: #fafafa;
         }
-
-        .text-right {
-            text-align: right;
+        
+        /* NOTAS ASSOCIADAS */
+        .notas-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 6pt;
+            margin-top: 1mm;
         }
-
-        .text-center {
-            text-align: center;
+        
+        .notas-table th {
+            background: #718096;
+            color: white;
+            padding: 1mm 2mm;
+            border: 0.5pt solid #000;
+            text-align: left;
+            font-weight: bold;
+            font-size: 6pt;
         }
-
-        /* RESUMO FINANCEIRO */
-        .resumo-box {
-            background: #f8fafc;
-            border: 2px solid #1e3c72;
-            border-radius: 8px;
-            padding: 20px;
-            margin: 20px 0;
+        
+        .notas-table td {
+            border: 0.5pt solid #ddd;
+            padding: 0.8mm 2mm;
+            vertical-align: top;
         }
-
-        .resumo-linha {
-            display: flex;
-            justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px dashed #d0d7de;
+        
+        /* TOTAIS */
+        .totals-box {
+            background: #f5f6f8;
+            border: 0.5pt solid #e4e6ec;
+            padding: 2mm 3mm;
+            margin: 3mm 0;
         }
-
-        .resumo-linha:last-child {
-            border-bottom: none;
-            font-weight: 700;
-            font-size: 12pt;
-            color: #0aca7d;
-            padding-top: 12px;
-            margin-top: 8px;
-            border-top: 2px solid #1e3c72;
+        
+        .totals-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 7pt;
         }
-
-        .resumo-label {
-            color: #5d6d7e;
+        
+        .totals-table td {
+            padding: 0.8mm 0;
+            border: none;
         }
-
-        .resumo-valor {
-            font-weight: 600;
+        
+        .totals-table tr:last-child td {
+            border-top: 0.5pt solid #013334;
+            padding-top: 1.5mm;
+            font-weight: bold;
+            font-size: 8pt;
         }
-
-        .text-credito {
-            color: #dc2626;
-        }
-
-        .text-debito {
-            color: #16a34a;
-        }
-
+        
         /* VALOR EXTENSO */
         .valor-extenso {
-            background: #f8fafc;
-            border: 1px solid #e9ecef;
-            border-radius: 6px;
-            padding: 12px 15px;
-            margin: 15px 0;
+            background: #e8f0f0;
+            border-left: 3pt solid #013334;
+            padding: 2mm 3mm;
+            margin: 3mm 0;
             font-style: italic;
-            color: #5d6d7e;
-            font-size: 9pt;
+            font-size: 7pt;
+            color: #013334;
         }
-
+        
         /* OBSERVAÇÕES */
-        .observacoes-box {
-            background: #f8fafc;
-            border: 1px solid #e9ecef;
-            border-radius: 6px;
-            padding: 15px;
-            margin: 20px 0;
+        .obs-box {
+            border: 0.5pt dashed #f0d060;
+            background: #fffbea;
+            padding: 2mm 3mm;
+            margin: 3mm 0;
         }
-
-        .observacoes-titulo {
-            font-size: 9pt;
-            font-weight: 600;
-            color: #5d6d7e;
+        
+        .obs-label {
+            font-size: 6.5pt;
+            font-weight: bold;
             text-transform: uppercase;
-            margin-bottom: 8px;
+            color: #5a4200;
+            margin-bottom: 1mm;
         }
-
-        .observacoes-conteudo {
-            font-size: 9pt;
-            color: #2c3e50;
-            line-height: 1.5;
-        }
-
-        /* ALERTAS */
-        .alert {
-            padding: 12px 15px;
-            border-radius: 6px;
-            margin: 15px 0;
-            font-size: 9pt;
-        }
-
+        
+        /* ALERTA */
         .alert-warning {
             background: #fff3cd;
-            border: 1px solid #ffeeba;
+            border: 0.5pt solid #ffeeba;
+            padding: 2mm 3mm;
+            margin: 3mm 0;
+            font-size: 6.5pt;
             color: #856404;
         }
-
+        
         /* ASSINATURAS */
-        .assinaturas {
-            display: flex;
-            justify-content: space-between;
-            margin: 30px 0 20px;
-            padding-top: 20px;
-            border-top: 2px solid #e0e0e0;
+        .signatures {
+            display: table;
+            width: 100%;
+            margin-top: 4mm;
+            padding-top: 3mm;
+            border-top: 0.5pt solid #e4e6ec;
         }
-
-        .assinatura-box {
-            flex: 1;
+        
+        .signature-box {
+            display: table-cell;
             text-align: center;
-            margin: 0 10px;
+            width: 50%;
         }
-
-        .assinatura-linha {
-            border-bottom: 1px solid #2c3e50;
-            height: 40px;
-            margin-bottom: 8px;
+        
+        .signature-line {
+            height: 12mm;
+            border-bottom: 0.5pt solid #9fa4b0;
+            margin: 1mm 5mm;
         }
-
-        .assinatura-label {
-            font-size: 8pt;
-            font-weight: 600;
-            color: #5d6d7e;
-            text-transform: uppercase;
+        
+        .signature-label {
+            font-size: 6.5pt;
+            font-weight: bold;
+            margin-bottom: 0.5mm;
+            color: #5a5f6e;
         }
-
-        .assinatura-nome {
-            font-size: 8pt;
-            color: #1e3c72;
-            margin-top: 3px;
-        }
-
+        
         /* RODAPÉ */
         .footer {
-            margin-top: 30px;
-            padding-top: 15px;
-            border-top: 1px solid #e0e0e0;
-            font-size: 7pt;
-            color: #95a5a6;
+            width: 100%;
             text-align: center;
+            font-size: 6pt;
+            color: #9fa4b0;
+            padding-top: 2mm;
+            border-top: 0.5pt solid #e4e6ec;
+            margin-top: 3mm;
         }
-
-        .footer-info {
-            margin-bottom: 3px;
-        }
-
-        /* UTILITÁRIOS */
-        .bold { font-weight: 600; }
         
-        /* RESPONSIVIDADE */
+        .footer-brand { 
+            font-weight: bold; 
+            color: #013334; 
+        }
+        
+        /* UTILITÁRIOS */
+        .bold { font-weight: bold; }
+        .text-right { text-align: right; }
+        .text-center { text-align: center; }
+        .text-muted { color: #9fa4b0; }
+        
+        /* EVITA QUEBRAS */
+        .section, .signatures, .totals-box, .valor-extenso, .obs-box, .alert-warning {
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }
+        
         @media print {
-            body { background: white; }
-            .container { padding: 0; }
-            @page { margin: 1.5cm; }
+            body {
+                margin: 0;
+                padding: 0;
+            }
+            .container {
+                padding: 2mm;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-
+        
         <!-- CABEÇALHO -->
         <div class="header">
-            <div class="empresa-info">
-                @if($empresa && $empresa->logo)
-                    <img src="{{ $empresa->logo }}" alt="Logo" style="max-height: 60px; max-width: 200px; margin-bottom: 10px;">
-                @else
-                    <div class="empresa-nome">{{ $empresa->nome ?? 'EMPRESA' }}</div>
+            <div class="header-cell logo">
+                @if($logo_empresa)
+                    <img src="{{ $logo_empresa }}" alt="Logo">
                 @endif
-                <div class="empresa-detalhes">
-                    <p>{{ $empresa->endereco ?? 'Endereço da Empresa' }}</p>
-                    <p>NIF: {{ $empresa->nif ?? '123456789' }} | Tel: {{ $empresa->telefone ?? '+258 84 000 0000' }}</p>
-                    <p>{{ $empresa->email ?? 'geral@empresa.co.mz' }}</p>
+                <div class="company-name">{{ $empresa->nome ?? '—' }}</div>
+                <div class="company-info">
+                    {{ $empresa->endereco ?? '' }}<br>
+                    NUIT: {{ $empresa->nif ?? '—' }} | Tel: {{ $empresa->telefone ?? '—' }}<br>
+                    {{ $empresa->email ?? '' }}
                 </div>
             </div>
             
-            <div class="documento-tipo">
-                <div class="documento-titulo">ORDEM DE FATURAÇÃO</div>
-                <div class="documento-numero">{{ $ordem->codigo }}</div>
-                <div class="documento-data">Data: {{ $data_emissao }}</div>
-                <div class="status-badge status-{{ $ordem->status }}">
-                    {{ $status }}
+            <div class="header-cell doc-meta">
+                <div class="doc-title">Ordem de Faturação</div>
+                <div class="doc-number">Nº: {{ $ordem->codigo }}</div>
+                <div>
+                    <span class="status-badge status-{{ $ordem->status }}">{{ $status }}</span>
                 </div>
+                <div style="margin-top: 1mm;">
+                    <strong>Data:</strong> {{ $data_emissao }}
+                </div>
+                @if($viagem)
+                <div><strong>Ref. Viagem:</strong> {{ $viagem->trip_number }}</div>
+                @endif
             </div>
         </div>
-
-        <!-- INFORMAÇÕES PRINCIPAIS -->
-        <div class="info-grid">
-            <div class="info-card">
-                <div class="info-row">
-                    <span class="info-label">Cliente:</span>
-                    <span class="info-value">{{ $ordem->cliente }}</span>
+        
+        <!-- CONTEÚDO PRINCIPAL -->
+        <div class="content">
+            
+            <!-- COLUNA ESQUERDA -->
+            <div class="column left-column">
+                
+                <!-- CLIENTE -->
+                <div class="section">
+                    <div class="section-title">Cliente</div>
+                    <div class="section-content">
+                        <table class="table-info">
+                            <tr>
+                                <td class="label">Nome</td>
+                                <td class="bold">{{ $cliente['nome'] ?? $ordem->cliente ?? ($viagem->customer_name ?? '—') }}</td>
+                            </tr>
+                            @if(!empty($cliente['endereco']))
+                            <tr>
+                                <td class="label">Endereço</td>
+                                <td>{{ $cliente['endereco'] }}</td>
+                            </tr>
+                            @endif
+                            @if(!empty($cliente['nuit']))
+                            <tr>
+                                <td class="label">NUIT/NIF</td>
+                                <td>{{ $cliente['nuit'] }}</td>
+                            </tr>
+                            @endif
+                            @if(!empty($cliente['telefone']))
+                            <tr>
+                                <td class="label">Telefone</td>
+                                <td>{{ $cliente['telefone'] }}</td>
+                            </tr>
+                            @endif
+                            @if(!empty($cliente['email']))
+                            <tr>
+                                <td class="label">Email</td>
+                                <td>{{ $cliente['email'] }}</td>
+                            </tr>
+                            @endif
+                        </table>
+                    </div>
                 </div>
-                <div class="info-row">
-                    <span class="info-label">Motorista:</span>
-                    <span class="info-value">{{ $ordem->motorista }}</span>
-                </div>
+                
             </div>
             
-            <div class="info-card">
-                <div class="info-row">
-                    <span class="info-label">Origem:</span>
-                    <span class="info-value">{{ $ordem->origem }}</span>
+            <!-- COLUNA DIREITA -->
+            <div class="column right-column">
+                
+                <!-- INFORMAÇÕES DA VIAGEM -->
+                <div class="section">
+                    <div class="section-title">Informações da Viagem</div>
+                    <div class="section-content">
+                        <table class="table-info">
+                            <tr>
+                                <td class="label">Origem</td>
+                                <td>{{ $ordem->origem ?? ($viagem->from_station ?? '—') }}</td>
+                            </tr>
+                            <tr>
+                                <td class="label">Destino</td>
+                                <td>{{ $ordem->destino ?? ($viagem->to_station ?? '—') }}</td>
+                            </tr>
+                            @if($viagem)
+                            <tr>
+                                <td class="label">Camião</td>
+                                <td>{{ $viagem->truck_number ?? '—' }}</td>
+                            </tr>
+                            <tr>
+                                <td class="label">Reboque</td>
+                                <td>{{ $viagem->trailer_number ?? '—' }}</td>
+                            </tr>
+                            <tr>
+                                <td class="label">Motorista</td>
+                                <td>{{ $viagem->driver ?? '—' }}</td>
+                            </tr>
+                            @endif
+                        </table>
+                    </div>
                 </div>
-                <div class="info-row">
-                    <span class="info-label">Destino:</span>
-                    <span class="info-value">{{ $ordem->destino }}</span>
-                </div>
+                
             </div>
             
-            @if($viagem)
-            <div class="info-card">
-                <div class="info-row">
-                    <span class="info-label">Viagem:</span>
-                    <span class="info-value">{{ $viagem->trip_number }}</span>
-                </div>
-                <div class="info-row">
-                    <span class="info-label">Data Viagem:</span>
-                    <span class="info-value">{{ date('d/m/Y', strtotime($ordem->dataViagem)) }}</span>
-                </div>
-            </div>
-            @endif
         </div>
-
+        
         <!-- SERVIÇOS -->
         <div class="section">
-            <div class="section-titulo">Serviços Prestados</div>
-            <table class="tabela">
-                <thead>
-                    <tr>
-                        <th>Descrição</th>
-                        <th class="text-right">Valor (MZN)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>Serviços de Transporte - {{ $ordem->origem }} → {{ $ordem->destino }}</td>
-                        <td class="text-right">{{ $servicos_formatado }}</td>
-                    </tr>
-                </tbody>
-            </table>
+            <div class="section-title">Serviços</div>
+            <div class="section-content">
+                <table class="items-table">
+                    <thead>
+                        <tr>
+                            <th style="width:5%">#</th>
+                            <th>DESCRIÇÃO</th>
+                            <th style="width:25%; text-align:right;">VALOR (MZN)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>1</td>
+                            <td>
+                                Serviços de Transporte
+                                @if($ordem->origem && $ordem->destino)
+                                    — {{ $ordem->origem }} → {{ $ordem->destino }}
+                                @elseif($viagem)
+                                    — {{ $viagem->from_station ?? '' }} → {{ $viagem->to_station ?? '' }}
+                                @endif
+                            </td>
+                            <td class="text-right">{{ $servicos_formatado }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
-
-        <!-- NOTAS FISCAIS (se houver) -->
+        
+        <!-- NOTAS ASSOCIADAS -->
         @if(isset($notas) && count($notas) > 0)
         <div class="section">
-            <div class="section-titulo">Notas Fiscais Relacionadas</div>
-            <table class="tabela">
-                <thead>
-                    <tr>
-                        <th>Nº Nota</th>
-                        <th>Tipo</th>
-                        <th>Motivo</th>
-                        <th class="text-right">Valor</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach($notas as $notaItem)
-                    <tr>
-                        <td>{{ $notaItem->numero }}</td>
-                        <td>{{ ucfirst($notaItem->tipo) }}</td>
-                        <td>{{ $notaItem->motivo }}</td>
-                        <td class="text-right {{ $notaItem->tipo == 'credito' ? 'text-credito' : 'text-debito' }}">
-                            {{ $notaItem->tipo == 'credito' ? '- ' : '+ ' }}
-                            {{ number_format($notaItem->valor, 2, ',', '.') }}
-                        </td>
-                    </tr>
-                    @endforeach
-                </tbody>
+            <div class="section-title">Notas Associadas</div>
+            <div class="section-content">
+                <table class="notas-table">
+                    <thead>
+                        <tr>
+                            <th>Nº Nota</th>
+                            <th>Tipo</th>
+                            <th>Motivo</th>
+                            <th class="text-right">Valor (MZN)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($notas as $nota)
+                        <tr>
+                            <td>{{ $nota->numero }}</td>
+                            <td>{{ ucfirst($nota->tipo) }}</td>
+                            <td>{{ $nota->motivo }}</td>
+                            <td class="text-right">
+                                {{ $nota->tipo == 'credito' ? '- ' : '+ ' }}{{ number_format($nota->valor, 2, ',', '.') }}
+                            </td>
+                        </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        @endif
+        
+        <!-- TOTAIS -->
+        <div class="totals-box">
+            <table class="totals-table">
+                <tr>
+                    <td>Valor dos Serviços:</td>
+                    <td class="text-right">{{ $servicos_formatado }} MZN</td>
+                </tr>
+                @if($totais['debitos'] > 0)
+                <tr>
+                    <td>Notas de Débito (+):</td>
+                    <td class="text-right">+ {{ $debitos_formatado }} MZN</td>
+                </tr>
+                @endif
+                @if($totais['creditos'] > 0)
+                <tr>
+                    <td>Notas de Crédito (-):</td>
+                    <td class="text-right">- {{ $creditos_formatado }} MZN</td>
+                </tr>
+                @endif
+                <tr>
+                    <td><strong>TOTAL A FATURAR:</strong></td>
+                    <td class="text-right"><strong>{{ $saldo_formatado }} MZN</strong></td>
+                </tr>
             </table>
         </div>
-        @endif
-
-        <!-- RESUMO FINANCEIRO -->
-        <div class="resumo-box">
-            <div class="resumo-linha">
-                <span class="resumo-label">Valor dos Serviços:</span>
-                <span class="resumo-valor">{{ $servicos_formatado }} MZN</span>
-            </div>
-            
-            @if($totais['debitos'] > 0)
-            <div class="resumo-linha">
-                <span class="resumo-label text-debito">Notas de Débito (+):</span>
-                <span class="resumo-valor text-debito">+ {{ $debitos_formatado }} MZN</span>
-            </div>
-            @endif
-            
-            @if($totais['creditos'] > 0)
-            <div class="resumo-linha">
-                <span class="resumo-label text-credito">Notas de Crédito (-):</span>
-                <span class="resumo-valor text-credito">- {{ $creditos_formatado }} MZN</span>
-            </div>
-            @endif
-            
-            <div class="resumo-linha">
-                <span class="resumo-label">TOTAL A FATURAR:</span>
-                <span class="resumo-valor">{{ $saldo_formatado }} MZN</span>
-            </div>
-        </div>
-
-        <!-- VALOR POR EXTENSO -->
+        
+        <!-- VALOR EXTENSO -->
         <div class="valor-extenso">
-            <strong>Valor por extenso:</strong> {{ $valor_extenso }}
+            <strong>Valor por extenso:</strong> {{ ucfirst($valor_extenso) }}
         </div>
-
+        
         <!-- OBSERVAÇÕES -->
-        @if($ordem->observacoes)
-        <div class="observacoes-box">
-            <div class="observacoes-titulo">Observações</div>
-            <div class="observacoes-conteudo">{{ $ordem->observacoes }}</div>
+        @if(!empty($ordem->observacoes))
+        <div class="obs-box">
+            <div class="obs-label">Observações</div>
+            <div>{{ $ordem->observacoes }}</div>
         </div>
         @endif
-
-        <!-- ALERTA PARA ORDENS PENDENTES -->
+        
+        <!-- ALERTA PENDENTE -->
         @if($ordem->status == 'pendente')
-        <div class="alert alert-warning">
-            <strong>⚠️ ATENÇÃO:</strong> Esta ordem de faturação ainda não foi processada. 
-            Após a emissão da fatura oficial, marque como "Faturado" no sistema.
+        <div class="alert-warning">
+            <strong>⚠️ ATENÇÃO:</strong>
+            Esta ordem ainda não foi processada. Após emissão da fatura oficial, marque como "Processado" no sistema.
         </div>
         @endif
-
+        
         <!-- ASSINATURAS -->
-        <div class="assinaturas">
-            <div class="assinatura-box">
-                <div class="assinatura-linha"></div>
-                <div class="assinatura-label">Assinatura do Cliente</div>
-                <div class="assinatura-nome">{{ $ordem->cliente }}</div>
+        <div class="signatures">
+            <div class="signature-box">
+                <div class="signature-label">Assinatura do Cliente</div>
+                <div class="signature-line"></div>
+                <div class="text-muted">{{ $cliente['nome'] ?? $ordem->cliente ?? ($viagem->customer_name ?? '—') }}</div>
             </div>
             
-            <div class="assinatura-box">
-                <div class="assinatura-linha"></div>
-                <div class="assinatura-label">Assinatura do Responsável</div>
-                <div class="assinatura-nome">{{ $empresa->nome ?? 'Empresa' }}</div>
+            <div class="signature-box">
+                <div class="signature-label">Assinatura do Responsável</div>
+                <div class="signature-line"></div>
+                <div class="text-muted">{{ $empresa->nome ?? '—' }}</div>
             </div>
         </div>
-
+        
         <!-- RODAPÉ -->
         <div class="footer">
-            <div class="footer-info">{{ $empresa->nome ?? 'Empresa' }} - NIF: {{ $empresa->nif ?? '123456789' }}</div>
-            <div class="footer-info">Documento gerado por {{ $usuario }} em {{ $current_date }}</div>
-            <div class="footer-info">Este documento serve como pré-fatura e guia para emissão do documento fiscal oficial</div>
+            <div>
+                Documento gerado por {{ $criadoPor }} em {{ $current_date }}
+                &nbsp;|&nbsp;
+                Este documento serve como pré-fatura e guia para emissão do documento fiscal oficial.
+            </div>
+            <div style="margin-top: 1mm;">
+                <span class="footer-brand">abdago Fleet</span><br>
+                Sistema de Gestão de Transportes
+            </div>
         </div>
+        
     </div>
 </body>
 </html>

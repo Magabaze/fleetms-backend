@@ -12,24 +12,37 @@
             box-sizing: border-box;
         }
         
+        /* CENTRALIZAÇÃO */
         body {
             font-family: Arial, Helvetica, sans-serif;
-            font-size: 7pt;
-            line-height: 1.1;
+            font-size: 6.2pt;  /* REDUZIDO de 7pt */
+            line-height: 1.4;  /* REDUZIDO de 1.1 */
             color: #000;
+            background: #fff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 5mm;
         }
         
         .container {
             width: 100%;
-            padding: 5mm;
+            max-width: 290mm;  /* Largura máxima para A4 paisagem */
+            margin: 0 auto;
+            margin-left: -3mm;
+            padding: 2mm 3mm;  /* MARGENS REDUZIDAS */
+            background: #fff;
         }
         
+        /* CABEÇALHO - MANTIDO ORIGINAL */
         .header {
             display: table;
             width: 100%;
-            margin-bottom: 4mm;
-            padding-bottom: 2mm;
-            border-bottom: 1.5pt solid #000;
+            margin-bottom: 3mm;  /* REDUZIDO de 4mm */
+            padding-bottom: 1.5mm;  /* REDUZIDO de 2mm */
+            border-bottom: 1.2pt solid #000;
         }
         
         .header-cell {
@@ -38,12 +51,12 @@
         }
         
         .logo {
-            width: 45mm;
+            width: 38mm;  /* REDUZIDO de 45mm */
         }
         
         .logo img {
-            max-width: 40mm;
-            max-height: 15mm;
+            max-width: 38mm;  /* REDUZIDO de 40mm */
+            max-height: 19mm;  /* REDUZIDO de 15mm */
             display: block;
         }
         
@@ -52,15 +65,15 @@
         }
         
         .title h1 {
-            font-size: 11pt;
+            font-size: 10pt;  /* REDUZIDO de 11pt */
             font-weight: bold;
-            margin: 0 0 1mm 0;
+            margin: 0 0 0.5mm 0;
             text-transform: uppercase;
-            letter-spacing: 0.5pt;
+            letter-spacing: 0.3pt;
         }
         
         .title h2 {
-            font-size: 7pt;
+            font-size: 6pt;  /* REDUZIDO de 7pt */
             margin: 0;
             color: #555;
             font-weight: normal;
@@ -68,31 +81,32 @@
         
         .doc-info {
             text-align: right;
-            width: 45mm;
+            width: 38mm;  /* REDUZIDO de 45mm */
         }
         
         .doc-number {
-            font-size: 9pt;
+            font-size: 8pt;  /* REDUZIDO de 9pt */
             font-weight: bold;
             color: #1a56db;
-            margin-bottom: 1mm;
+            margin-bottom: 0.5mm;
         }
         
         .doc-date {
-            font-size: 7pt;
+            font-size: 6.5pt;  /* REDUZIDO de 7pt */
             color: #666;
         }
         
+        /* CONTEÚDO PRINCIPAL - MANTIDO TABLE ORIGINAL */
         .content {
             display: table;
             width: 100%;
-            margin-bottom: 3mm;
+            margin-bottom: 2mm;
         }
         
         .column {
             display: table-cell;
             vertical-align: top;
-            padding: 0 3mm;
+            padding: 0 2mm;  /* REDUZIDO de 3mm */
         }
         
         .left-column {
@@ -103,34 +117,38 @@
             width: 40%;
         }
         
+        /* SEÇÕES */
         .section {
             border: 0.5pt solid #000;
-            margin-bottom: 3mm;
+            margin-bottom: 2.5mm;  /* REDUZIDO de 3mm */
+            break-inside: avoid;
+            page-break-inside: avoid;
         }
         
         .section-title {
             background: #2d3748;
             color: white;
-            padding: 1.5mm 3mm;
-            font-size: 8pt;
+            padding: 1mm 2mm;  /* REDUZIDO de 1.5mm 3mm */
+            font-size: 7pt;  /* REDUZIDO de 8pt */
             font-weight: bold;
             text-align: center;
             text-transform: uppercase;
         }
         
         .section-content {
-            padding: 2mm;
+            padding: 1.5mm;  /* REDUZIDO de 2mm */
         }
         
+        /* TABELAS */
         .table-info {
             width: 100%;
             border-collapse: collapse;
-            font-size: 7pt;
+            font-size: 6.2pt;
         }
         
         .table-info td {
             border: 0.5pt solid #ddd;
-            padding: 1mm 2mm;
+            padding: 0.8mm 1.2mm;  /* REDUZIDO de 1mm 2mm */
             vertical-align: middle;
         }
         
@@ -138,32 +156,35 @@
             background: #f5f5f5;
             font-weight: bold;
             width: 35%;
-            font-size: 6.5pt;
+            font-size: 6pt;
         }
         
+        /* TABELA DE CARGA */
         .cargo-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 6.5pt;
-            margin-top: 2mm;
+            font-size: 6pt;
+            margin-top: 1mm;  /* REDUZIDO de 2mm */
         }
         
         .cargo-table th {
             background: #4a5568;
             color: white;
-            padding: 1.5mm;
+            padding: 0.8mm;  /* REDUZIDO de 1.5mm */
             border: 0.5pt solid #000;
             text-align: center;
             font-weight: bold;
-            font-size: 7pt;
+            font-size: 6.2pt;
         }
         
         .cargo-table td {
             border: 0.5pt solid #000;
-            padding: 1.5mm;
+            padding: 0.8mm;  /* REDUZIDO de 1.5mm */
             text-align: center;
+            font-size: 6pt;
         }
         
+        /* INFORMAÇÕES DO MOTORISTA - MANTIDO TABLE ORIGINAL */
         .driver-info {
             display: table;
             width: 100%;
@@ -171,17 +192,20 @@
         
         .driver-photo {
             display: table-cell;
-            width: 25mm;
+            width: 20mm;  /* REDUZIDO de 25mm */
             vertical-align: top;
-            padding-right: 2mm;
+            padding-right: 1.5mm;  /* REDUZIDO de 2mm */
         }
         
         .photo-frame {
-            width: 23mm;
-            height: 28mm;
+            width: 18mm;  /* REDUZIDO de 23mm */
+            height: 22mm;  /* REDUZIDO de 28mm */
             border: 0.5pt solid #000;
             overflow: hidden;
             background: #f5f5f5;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         
         .driver-photo-img {
@@ -191,10 +215,10 @@
         }
         
         .driver-name {
-            font-size: 6.5pt;
+            font-size: 5.5pt;
             font-weight: bold;
             text-align: center;
-            margin-top: 1mm;
+            margin-top: 0.5mm;
         }
         
         .driver-details {
@@ -202,10 +226,11 @@
             vertical-align: top;
         }
         
+        /* VEÍCULO - MANTIDO TABLE ORIGINAL */
         .vehicle-grid {
             display: table;
             width: 100%;
-            margin-top: 2mm;
+            margin-top: 1mm;  /* REDUZIDO de 2mm */
         }
         
         .vehicle-row {
@@ -215,37 +240,40 @@
         .vehicle-item {
             display: table-cell;
             border: 0.5pt solid #ddd;
-            padding: 2mm;
+            padding: 1mm;  /* REDUZIDO de 2mm */
             text-align: center;
             width: 50%;
         }
         
         .vehicle-label {
-            font-size: 6pt;
+            font-size: 5.5pt;
             color: #666;
-            margin-bottom: 1mm;
+            margin-bottom: 0.5mm;
             text-transform: uppercase;
         }
         
         .vehicle-value {
-            font-size: 8pt;
+            font-size: 7pt;
             font-weight: bold;
         }
         
+        /* DECLARAÇÃO */
         .declaration {
-            padding: 2mm 3mm;
+            padding: 1.5mm 2mm;  /* REDUZIDO de 2mm 3mm */
             border: 0.5pt solid #000;
-            font-size: 6.5pt;
-            line-height: 1.3;
+            font-size: 5.8pt;  /* REDUZIDO de 6.5pt */
+            line-height: 1.2;
             background: #f9fafb;
-            margin-top: 3mm;
+            margin-top: 2mm;  /* REDUZIDO de 3mm */
+            text-align: justify;
         }
         
+        /* ASSINATURAS - MANTIDO TABLE ORIGINAL */
         .signatures {
             display: table;
             width: 100%;
-            margin-top: 3mm;
-            padding-top: 2mm;
+            margin-top: 2mm;  /* REDUZIDO de 3mm */
+            padding-top: 1.5mm;  /* REDUZIDO de 2mm */
             border-top: 0.5pt solid #000;
         }
         
@@ -256,62 +284,83 @@
         }
         
         .signature-line {
-            height: 8mm;
+            height: 5mm;  /* REDUZIDO de 8mm */
             border-bottom: 0.5pt solid #000;
-            margin: 1mm 3mm 1mm 3mm;
+            margin: 1mm 2mm;
         }
         
         .signature-label {
-            font-size: 6.5pt;
+            font-size: 6pt;
             font-weight: bold;
-            margin-bottom: 1mm;
+            margin-bottom: 0.5mm;
         }
         
         .signature-name {
-            font-size: 6pt;
+            font-size: 5.5pt;
             color: #555;
         }
         
+        /* ALFÂNDEGA */
         .customs-box {
             border: 0.5pt solid #000;
-            padding: 2mm;
+            padding: 1.5mm;  /* REDUZIDO de 2mm */
             text-align: center;
-            margin-top: 3mm;
+            margin-top: 2mm;  /* REDUZIDO de 3mm */
         }
         
         .customs-stamp {
-            height: 15mm;
+            height: 12mm;  /* REDUZIDO de 15mm */
             border: 0.5pt dashed #999;
-            margin: 2mm 0;
+            margin: 1.5mm 0;
             position: relative;
         }
         
         .stamp-label {
             position: absolute;
-            bottom: 1mm;
+            bottom: 0.5mm;
             left: 0;
             right: 0;
-            font-size: 6pt;
+            font-size: 5.5pt;
             color: #666;
         }
         
+        /* RODAPÉ */
         .footer {
             width: 100%;
             text-align: center;
-            font-size: 6pt;
+            font-size: 5.5pt;  /* REDUZIDO de 6pt */
             color: #666;
-            padding-top: 2mm;
+            padding-top: 1.5mm;  /* REDUZIDO de 2mm */
             border-top: 0.5pt solid #ccc;
+            margin-top: 2mm;
         }
         
         .footer-company {
             font-weight: bold;
-            margin-bottom: 1mm;
+            margin-bottom: 0.5mm;
         }
         
+        /* UTILITÁRIOS */
         .bold { font-weight: bold; }
         .text-center { text-align: center; }
         .no-wrap { white-space: nowrap; }
+        
+        /* EVITA QUEBRAS DESNECESSÁRIAS */
+        .section, .signatures, .declaration, .customs-box {
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }
+        
+        /* IMPRESSÃO */
+        @media print {
+            body {
+                margin: 0;
+                padding: 0;
+            }
+            .container {
+                padding: 2mm;
+            }
+        }
     </style>
 </head>
 <body>
@@ -336,7 +385,7 @@
             </div>
         </div>
         
-        <!-- CONTEÚDO PRINCIPAL -->
+        <!-- CONTEÚDO PRINCIPAL - 2 COLUNAS LADO A LADO -->
         <div class="content">
             
             <!-- COLUNA ESQUERDA -->
@@ -418,7 +467,7 @@
                                         <img src="{{ $foto_motorista }}" alt="Driver" class="driver-photo-img">
                                     @else
                                         <div style="width:100%;height:100%;background:#f5f5f5;display:flex;align-items:center;justify-content:center;">
-                                            <span style="color:#666;font-size:6pt;">No Photo</span>
+                                            <span style="color:#666;font-size:5pt;">No Photo</span>
                                         </div>
                                     @endif
                                 </div>
@@ -473,7 +522,7 @@
                             <div class="vehicle-row">
                                 <div class="vehicle-item">
                                     <div class="vehicle-label">Entry Border</div>
-                                    <div class="vehicle-value">{{ $entry_border }}</div>
+                                    <div class="vehicle-value">{{ $entry_border ?? 'N/A' }}</div>
                                 </div>
                                 <div class="vehicle-item">
                                     <div class="vehicle-label">Drop Off</div>
@@ -489,7 +538,7 @@
                     <div class="customs-stamp">
                         <div class="stamp-label">Customs Stamp & Signature</div>
                     </div>
-                    <div style="font-size: 6.5pt;">Report No.: ________________</div>
+                    <div style="font-size: 6pt;">Report No.: ________________</div>
                 </div>
                 
             </div>

@@ -13,8 +13,6 @@ Route::prefix('viagens')->group(function () {
     // Criar viagem
     Route::post('/', [ViagemController::class, 'store']);
     
-    // ✅ REMOVER A ROTA DE PRINT DAQUI - Ela já está no arquivo principal api.php
-    
     // Rotas com ID
     Route::prefix('{viagem}')->group(function () {
         // Ver viagem específica
