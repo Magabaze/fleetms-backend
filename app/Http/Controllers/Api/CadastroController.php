@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Database\Seeders\PermissionSeeder;
 use Illuminate\Support\Str;
 
 class CadastroController extends Controller
@@ -129,7 +130,13 @@ class CadastroController extends Controller
             ]);
             
             Log::info('✅ Usuário criado', ['user_id' => $user->id]);
-            
+
+            // ============================================
+            // 4. CRIAR PERMISSÕES DO TENANT
+            // ============================================
+            (new PermissionSeeder())->run($tenantStringId);
+            Log::info('✅ Permissões criadas para o tenant', ['tenant_id' => $tenantStringId]);
+
             DB::commit();
             
             $token = $user->createToken('auth_token')->plainTextToken;

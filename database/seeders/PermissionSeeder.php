@@ -8,7 +8,7 @@ use Illuminate\Database\Seeder;
 
 class PermissionSeeder extends Seeder
 {
-    public function run()
+    public function run(string $tenantId = 'default')
     {
         $permissoes = [
             // ===== DASHBOARD =====
@@ -174,8 +174,8 @@ class PermissionSeeder extends Seeder
 
         foreach ($permissoes as $permissao) {
             Permission::updateOrCreate(
-                ['chave' => $permissao['chave']],
-                $permissao
+                ['chave' => $permissao['chave'], 'tenant_id' => $tenantId],
+                array_merge($permissao, ['tenant_id' => $tenantId])
             );
         }
     }

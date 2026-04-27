@@ -35,17 +35,8 @@ class UserManagementController extends Controller
         if (!$user->role) {
             return false;
         }
-        
-        // Super admin tem todas as permissões
-        if ($user->role->is_super_admin) {
-            return true;
-        }
-        
-        // Verificar roles de admin
-        $rolesAdmin = ['administrador', 'admin', 'super admin', 'gerente'];
-        $roleNome = strtolower($user->role->nome);
-        
-        return in_array($roleNome, $rolesAdmin);
+
+        return (bool) $user->role->is_super_admin;
     }
 
     /**
@@ -703,27 +694,10 @@ class UserManagementController extends Controller
             
             // Associar permissões se fornecidas e NÃO for super admin
             if ($request->has('permissoes') && is_array($request->permissoes) && !$request->is_super_admin) {
-                // Buscar permissões pelo CHAVE (string) e pelo tenant
                 $permissions = Permission::whereIn('chave', $request->permissoes)
                     ->where('tenant_id', $tenantId)
                     ->get();
-                
-                // Verificar se todas as permissões foram encontradas
-                if ($permissions->count() !== count($request->permissoes)) {
-                    $encontradas = $permissions->pluck('chave')->toArray();
-                    $naoEncontradas = array_diff($request->permissoes, $encontradas);
-                    
-                    DB::rollBack();
-                    return response()->json([
-                        'success' => false,
-                        'error' => 'Algumas permissões não existem',
-                        'errors' => [
-                            'permissoes' => ['As seguintes permissões são inválidas: ' . implode(', ', $naoEncontradas)]
-                        ]
-                    ], 422);
-                }
-                
-                // Sincronizar usando IDs
+
                 $permissionIds = $permissions->pluck('id')->toArray();
                 $role->permissions()->sync($permissionIds);
             }
@@ -829,27 +803,10 @@ class UserManagementController extends Controller
             
             // Atualizar permissões se fornecidas
             if ($request->has('permissoes')) {
-                // Buscar permissões pelo CHAVE (string) e pelo tenant
                 $permissions = Permission::whereIn('chave', $request->permissoes)
                     ->where('tenant_id', $tenantId)
                     ->get();
-                
-                // Verificar se todas as permissões foram encontradas
-                if ($permissions->count() !== count($request->permissoes)) {
-                    $encontradas = $permissions->pluck('chave')->toArray();
-                    $naoEncontradas = array_diff($request->permissoes, $encontradas);
-                    
-                    DB::rollBack();
-                    return response()->json([
-                        'success' => false,
-                        'error' => 'Algumas permissões não existem',
-                        'errors' => [
-                            'permissoes' => ['As seguintes permissões são inválidas: ' . implode(', ', $naoEncontradas)]
-                        ]
-                    ], 422);
-                }
-                
-                // Sincronizar usando IDs
+
                 $permissionIds = $permissions->pluck('id')->toArray();
                 $role->permissions()->sync($permissionIds);
             }
@@ -1099,10 +1056,10 @@ class UserManagementController extends Controller
             }
             
             $validator = Validator::make($request->all(), [
-                'permissions' => 'required|array',
+                'permissions' => 'present|array',
                 'permissions.*' => 'string|max:255',
             ], [
-                'permissions.required' => 'As permissões são obrigatórias.',
+                'permissions.present' => 'O campo permissions deve estar presente.',
                 'permissions.array' => 'As permissões devem ser um array.',
             ]);
             
@@ -1116,26 +1073,10 @@ class UserManagementController extends Controller
             
             DB::beginTransaction();
             
-            // Buscar permissões pelo CHAVE (string) e pelo tenant
             $permissions = Permission::whereIn('chave', $request->permissions)
                 ->where('tenant_id', $tenantId)
                 ->get();
-            
-            // Verificar se todas as permissões foram encontradas
-            if ($permissions->count() !== count($request->permissions)) {
-                $encontradas = $permissions->pluck('chave')->toArray();
-                $naoEncontradas = array_diff($request->permissions, $encontradas);
-                
-                DB::rollBack();
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Algumas permissões não existem',
-                    'errors' => [
-                        'permissions' => ['As seguintes permissões são inválidas: ' . implode(', ', $naoEncontradas)]
-                    ]
-                ], 422);
-            }
-            
+
             $permissionIds = $permissions->pluck('id')->toArray();
             $role->permissions()->sync($permissionIds);
             
