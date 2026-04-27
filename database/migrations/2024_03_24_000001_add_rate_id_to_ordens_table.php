@@ -11,6 +11,14 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (!Schema::hasTable('ordens') || !Schema::hasTable('rates')) {
+            return;
+        }
+
+        if (Schema::hasColumn('ordens', 'rate_id')) {
+            return;
+        }
+
         // Passo 1: Adicionar a coluna como nullable primeiro
         Schema::table('ordens', function (Blueprint $table) {
             $table->unsignedBigInteger('rate_id')->nullable()->after('taxa_cliente_id');
@@ -73,6 +81,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (!Schema::hasTable('ordens') || !Schema::hasColumn('ordens', 'rate_id')) {
+            return;
+        }
+
         Schema::table('ordens', function (Blueprint $table) {
             $table->dropForeign(['rate_id']);
             $table->dropColumn('rate_id');

@@ -24,8 +24,6 @@ return new class extends Migration
             $table->index('tenant_id');
             $table->index('viagem_id');
             $table->index('motorista_id');
-            $table->foreign('viagem_id')->references('id')->on('viagens');
-            $table->foreign('motorista_id')->references('id')->on('motoristas');
         });
     }
 
